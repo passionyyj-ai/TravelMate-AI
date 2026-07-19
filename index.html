@@ -19,7 +19,12 @@
 <body>
   <header class="topbar">
     <div class="brand"><img src="./icon-192.png" alt=""><div><b>TravelMate AI</b><small>쉬운 해외여행 도우미</small></div></div>
-    <button id="fontBtn" class="plain-btn" type="button">글자 크게</button>
+    <div class="top-actions">
+      <button id="syncBadge" class="sync-badge offline" type="button" data-go="sync">
+        <span class="sync-dot"></span><span id="syncBadgeText">기기 저장</span>
+      </button>
+      <button id="fontBtn" class="plain-btn" type="button">글자 크게</button>
+    </div>
   </header>
 
   <main class="app">
@@ -108,18 +113,48 @@
 
     <section class="page" id="translatePage">
       <section class="card">
-        <div class="section-head"><div><h2>쉬운 통역</h2><p id="languageGuide">현지 언어가 자동으로 선택됩니다.</p></div></div>
-        <div class="language-switch">
-          <button id="toLocalBtn" class="active">한국어 → 현지어</button>
-          <button id="toKoreanBtn">현지어 → 한국어</button>
+        <div class="section-head">
+          <div><h2>쉬운 통역</h2><p id="languageGuide">현지 언어가 자동으로 선택됩니다.</p></div>
         </div>
-        <label class="wide-label"><span>말하거나 입력하세요</span><textarea id="translateInput" placeholder="예: 예약한 방을 확인하고 싶습니다."></textarea></label>
-        <div class="button-row large">
-          <button class="primary" id="speakInput">🎤 말하기</button>
-          <button class="primary" id="translateBtn">번역하기</button>
+
+        <div class="translator-tabs" role="tablist" aria-label="번역 종류">
+          <button id="textTranslatorTab" class="active" type="button">🗣️ 문장 통역</button>
+          <button id="imageTranslatorTab" type="button">📷 메뉴판 번역</button>
         </div>
-        <div class="translation-result"><small>번역 결과</small><div id="translateOutput">번역 결과가 여기에 표시됩니다.</div></div>
-        <button class="secondary full" id="readTranslation">🔊 번역 읽기</button>
+
+        <div id="textTranslatorPanel">
+          <div class="language-switch">
+            <button id="toLocalBtn" class="active" type="button">한국어 → 현지어</button>
+            <button id="toKoreanBtn" type="button">현지어 → 한국어</button>
+          </div>
+          <label class="wide-label"><span>말하거나 입력하세요</span><textarea id="translateInput" placeholder="예: 예약한 방을 확인하고 싶습니다."></textarea></label>
+          <div class="button-row large">
+            <button class="primary" id="speakInput" type="button">🎤 말하기</button>
+            <button class="primary" id="translateBtn" type="button">번역하기</button>
+          </div>
+          <div class="translation-result"><small>번역 결과</small><div id="translateOutput">번역 결과가 여기에 표시됩니다.</div></div>
+          <button class="secondary full" id="readTranslation" type="button">🔊 번역 읽기</button>
+        </div>
+
+        <div id="imageTranslatorPanel" class="hidden">
+          <div class="image-guide">
+            <b>메뉴판·표지판·영수증을 촬영하거나 선택하세요.</b>
+            <p>가격, 알레르기, 추가요금과 주의사항을 한국어로 정리합니다.</p>
+          </div>
+          <label class="camera-button">
+            📷 사진 촬영 또는 이미지 선택
+            <input id="imageTranslateFile" type="file" accept="image/*" capture="environment" hidden>
+          </label>
+          <div id="imagePreviewWrap" class="image-preview-wrap hidden">
+            <img id="imagePreview" alt="선택한 번역 이미지 미리보기">
+            <button id="removeImageBtn" class="small-btn" type="button">이미지 지우기</button>
+          </div>
+          <button id="analyzeImageBtn" class="primary full" type="button" disabled>이미지 번역하기</button>
+          <div class="translation-result image-result">
+            <small>이미지 번역 결과</small>
+            <div id="imageTranslateOutput">사진을 선택하면 분석 결과가 여기에 표시됩니다.</div>
+          </div>
+        </div>
       </section>
     </section>
 
@@ -146,14 +181,45 @@
 
     <section class="page" id="syncPage">
       <section class="card">
-        <div class="section-head"><div><h2>Supabase 동기화</h2><p>이메일로 로그인해 여행 데이터를 백업합니다.</p></div></div>
-        <label class="wide-label"><span>이메일</span><input id="syncEmail" type="email" placeholder="example@email.com"></label>
-        <button class="primary full" id="sendMagicLink">로그인 링크 받기</button>
-        <div class="button-row large">
-          <button class="secondary" id="uploadCloud">클라우드에 저장</button>
-          <button class="secondary" id="downloadCloud">클라우드에서 불러오기</button>
+        <div class="section-head">
+          <div>
+            <h2>자동 기기 동기화</h2>
+            <p>처음 한 번 로그인하면 여행과 일정이 자동으로 저장되고 다른 기기에도 반영됩니다.</p>
+          </div>
+          <span id="syncStatePill" class="state-pill offline">기기 저장 중</span>
         </div>
-        <p id="syncStatus" class="muted">Supabase 설정 전에는 휴대폰에만 저장됩니다.</p>
+
+        <div id="loggedOutSync">
+          <label class="wide-label"><span>이메일</span><input id="syncEmail" type="email" placeholder="example@email.com" autocomplete="email"></label>
+          <button class="primary full" id="sendMagicLink" type="button">이메일로 로그인 링크 받기</button>
+          <p class="muted">받은 이메일의 링크를 누르면 로그인됩니다. PC와 휴대폰에서 같은 이메일을 사용하세요.</p>
+        </div>
+
+        <div id="loggedInSync" class="hidden">
+          <div class="sync-summary">
+            <div><small>로그인 계정</small><b id="syncUserEmail">-</b></div>
+            <div><small>마지막 동기화</small><b id="lastSyncAt">아직 없음</b></div>
+          </div>
+          <div class="sync-description">
+            <span class="sync-dot online"></span>
+            <p>여행 추가·수정·삭제와 일정 변경 시 약 1초 후 자동 저장됩니다.</p>
+          </div>
+          <div class="button-row large">
+            <button class="secondary" id="forceSyncBtn" type="button">지금 동기화</button>
+            <button class="secondary" id="signOutBtn" type="button">로그아웃</button>
+          </div>
+        </div>
+
+        <div id="syncStatus" class="sync-message" aria-live="polite">로그인 전에는 이 기기에만 저장됩니다.</div>
+      </section>
+
+      <section class="card">
+        <h2>동기화 원칙</h2>
+        <div class="simple-steps">
+          <div><b>1</b><span>각 기기에서 같은 이메일로 로그인</span></div>
+          <div><b>2</b><span>앱을 열면 자동으로 데이터 병합</span></div>
+          <div><b>3</b><span>변경 내용은 자동 저장·자동 반영</span></div>
+        </div>
       </section>
     </section>
   </main>
