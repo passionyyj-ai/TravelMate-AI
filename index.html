@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0B6E75">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>TravelMate AI</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./favicon.png">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="./config.js"></script>
+  <script src="./country-data.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><img src="./icon-192.png" alt=""><div><b>TravelMate AI</b><small>쉬운 해외여행 도우미</small></div></div>
+    <button id="fontBtn" class="plain-btn" type="button">글자 크게</button>
+  </header>
+
+  <main class="app">
+    <section class="page active" id="homePage">
+      <article class="hero">
+        <div>
+          <small>현재 여행</small>
+          <h1 id="homeTripName">등록된 여행이 없습니다</h1>
+          <p id="homeTripMeta">여행을 먼저 등록해 주세요.</p>
+        </div>
+        <button class="hero-button" data-go="trips">여행 선택</button>
+      </article>
+
+      <section class="card">
+        <div class="section-head"><h2>지금 확인할 것</h2><button class="small-btn" id="refreshHome">새로고침</button></div>
+        <div class="next-event" id="nextEventCard">
+          <div class="next-icon">📅</div>
+          <div><small>다음 일정</small><h3 id="nextTitle">일정이 없습니다</h3><p id="nextMeta">일정을 등록해 주세요.</p></div>
+        </div>
+      </section>
+
+      <section class="two-grid">
+        <article class="card big-info"><small>여행지 시간</small><b id="localClock">--:--</b><span id="localDate">--</span></article>
+        <article class="card big-info"><small>한국 시간</small><b id="koreaClock">--:--</b><span id="koreaDate">--</span></article>
+      </section>
+
+      <section class="home-actions">
+        <button data-go="schedule">📅<span>일정</span></button>
+        <button data-go="translate">🗣️<span>통역</span></button>
+        <button data-go="tools">💱<span>환율·도구</span></button>
+        <button data-go="trips">🧳<span>여행 관리</span></button>
+      </section>
+    </section>
+
+    <section class="page" id="tripsPage">
+      <section class="card">
+        <div class="section-head"><div><h2>여행 관리</h2><p>여행을 여러 개 등록하고 선택할 수 있습니다.</p></div><button class="primary" id="newTripBtn">+ 새 여행</button></div>
+        <div id="tripList" class="trip-list"></div>
+      </section>
+
+      <section class="card hidden" id="tripEditor">
+        <div class="section-head"><h2 id="tripEditorTitle">새 여행 등록</h2><button class="small-btn" id="closeTripEditor">닫기</button></div>
+        <input type="hidden" id="tripId">
+        <div class="form-grid">
+          <label><span>여행 이름</span><input id="tripName" placeholder="예: 2027 파리 가족여행"></label>
+          <label><span>국가</span><select id="tripCountry"></select></label>
+          <label><span>도시</span><select id="tripCity"></select></label>
+          <label><span>통화단위</span><input id="tripCurrency" readonly></label>
+          <label><span>IANA 시간대</span><select id="tripTimezone"></select></label>
+          <label><span>현지 언어</span><input id="tripLanguage" readonly></label>
+          <label><span>출발일</span><input id="tripStart" type="date"></label>
+          <label><span>귀국일</span><input id="tripEnd" type="date"></label>
+        </div>
+        <button class="primary full" id="saveTripBtn">여행 저장</button>
+      </section>
+    </section>
+
+    <section class="page" id="schedulePage">
+      <section class="card">
+        <div class="section-head">
+          <div><h2>여행 일정</h2><p id="scheduleTripName">현재 여행 일정</p></div>
+          <div class="button-row">
+            <button class="small-btn" id="downloadSample">샘플 CSV</button>
+            <label class="small-btn file-label">파일 업로드<input id="importFile" type="file" accept=".xlsx,.xls,.csv" hidden></label>
+            <button class="primary" id="newScheduleBtn">+ 일정</button>
+          </div>
+        </div>
+        <div id="scheduleList" class="schedule-list"></div>
+      </section>
+
+      <section class="card hidden" id="scheduleEditor">
+        <div class="section-head"><h2 id="scheduleEditorTitle">일정 추가</h2><button class="small-btn" id="closeScheduleEditor">닫기</button></div>
+        <input type="hidden" id="scheduleId">
+        <div class="form-grid">
+          <label><span>날짜</span><input id="scheduleDate" type="date"></label>
+          <label><span>시작시간</span><input id="scheduleStart" type="time"></label>
+          <label><span>종료시간</span><input id="scheduleEnd" type="time"></label>
+          <label><span>일정명</span><input id="scheduleTitle" placeholder="예: 호텔 체크인"></label>
+          <label><span>장소</span><input id="schedulePlace" placeholder="예: Paris Hotel"></label>
+          <label><span>분류</span><select id="scheduleCategory"><option>이동</option><option>항공</option><option>숙소</option><option>식사</option><option>관광</option><option>쇼핑</option><option>기타</option></select></label>
+        </div>
+        <label class="wide-label"><span>메모</span><textarea id="scheduleNote"></textarea></label>
+        <button class="primary full" id="saveScheduleBtn">일정 저장</button>
+      </section>
+    </section>
+
+    <section class="page" id="translatePage">
+      <section class="card">
+        <div class="section-head"><div><h2>쉬운 통역</h2><p id="languageGuide">현지 언어가 자동으로 선택됩니다.</p></div></div>
+        <div class="language-switch">
+          <button id="toLocalBtn" class="active">한국어 → 현지어</button>
+          <button id="toKoreanBtn">현지어 → 한국어</button>
+        </div>
+        <label class="wide-label"><span>말하거나 입력하세요</span><textarea id="translateInput" placeholder="예: 예약한 방을 확인하고 싶습니다."></textarea></label>
+        <div class="button-row large">
+          <button class="primary" id="speakInput">🎤 말하기</button>
+          <button class="primary" id="translateBtn">번역하기</button>
+        </div>
+        <div class="translation-result"><small>번역 결과</small><div id="translateOutput">번역 결과가 여기에 표시됩니다.</div></div>
+        <button class="secondary full" id="readTranslation">🔊 번역 읽기</button>
+      </section>
+    </section>
+
+    <section class="page" id="toolsPage">
+      <section class="card">
+        <div class="section-head"><div><h2>환율 계산</h2><p id="currencyGuide">여행지 통화가 자동 적용됩니다.</p></div><button class="small-btn" id="refreshRate">환율 불러오기</button></div>
+        <div class="currency-box">
+          <label><span id="localCurrencyLabel">현지 금액</span><input id="localAmount" type="number" inputmode="decimal" value="100"></label>
+          <div class="equals">=</div>
+          <div class="krw-result"><small>원화 환산</small><b id="krwResult">-- 원</b></div>
+        </div>
+        <p class="muted" id="rateStatus">환율을 불러오면 자동 계산됩니다.</p>
+      </section>
+      <section class="card">
+        <h2>여행지 빠른 도구</h2>
+        <div class="tool-grid">
+          <button data-search="weather">☀️<span>날씨</span></button>
+          <button data-search="map">🗺️<span>지도</span></button>
+          <button data-search="translate">🌐<span>번역앱</span></button>
+          <button data-search="pharmacy">💊<span>약국</span></button>
+        </div>
+      </section>
+    </section>
+
+    <section class="page" id="syncPage">
+      <section class="card">
+        <div class="section-head"><div><h2>Supabase 동기화</h2><p>이메일로 로그인해 여행 데이터를 백업합니다.</p></div></div>
+        <label class="wide-label"><span>이메일</span><input id="syncEmail" type="email" placeholder="example@email.com"></label>
+        <button class="primary full" id="sendMagicLink">로그인 링크 받기</button>
+        <div class="button-row large">
+          <button class="secondary" id="uploadCloud">클라우드에 저장</button>
+          <button class="secondary" id="downloadCloud">클라우드에서 불러오기</button>
+        </div>
+        <p id="syncStatus" class="muted">Supabase 설정 전에는 휴대폰에만 저장됩니다.</p>
+      </section>
+    </section>
+  </main>
+
+  <nav class="bottom-nav">
+    <button class="active" data-go="home">🏠<span>홈</span></button>
+    <button data-go="trips">🧳<span>여행</span></button>
+    <button data-go="schedule">📅<span>일정</span></button>
+    <button data-go="translate">🗣️<span>통역</span></button>
+    <button data-go="tools">🧰<span>도구</span></button>
+    <button data-go="sync">☁️<span>백업</span></button>
+  </nav>
+
+  <script src="./app.js"></script>
+</body>
+</html>
