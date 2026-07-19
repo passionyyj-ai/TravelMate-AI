@@ -86,3 +86,29 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .login-divider{display:flex;align-items:center;gap:12px;color:var(--muted);margin:18px 0}
 .login-divider::before,.login-divider::after{content:"";height:1px;background:var(--line);flex:1}
 .login-divider span{white-space:nowrap;font-size:.92rem}
+
+
+/* v1.2 Travel Assistant */
+.image-source-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.gallery-button{background:#fffaf0;border-color:#d7a83e;color:#765000}
+.weather-panel{display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;border:1px solid var(--line);border-radius:18px;padding:18px;background:#f7fbfb}
+.weather-icon{font-size:2.6rem}
+.weather-panel b{font-size:2rem;display:block}
+.weather-panel span{display:block}
+.weather-meta{text-align:right;color:var(--muted);font-size:.9rem}
+.voucher-list{display:grid;gap:10px;margin-top:14px}
+.voucher-item{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--line);border-radius:15px;padding:13px}
+.voucher-item-info{min-width:0}
+.voucher-item-info b,.voucher-item-info small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.voucher-item-info small{color:var(--muted);margin-top:4px}
+.reminder-options{display:flex;gap:18px;flex-wrap:wrap;margin:14px 0}
+.ai-chat-log{display:grid;gap:10px;max-height:340px;overflow:auto;padding:4px 0 14px}
+.ai-message{padding:13px 15px;border-radius:16px;white-space:pre-wrap;line-height:1.55}
+.ai-message.assistant{background:#edf7f5;border:1px solid #cde7e2}
+.ai-message.user{background:#f3f4f6;border:1px solid var(--line);margin-left:12%}
+.offline-banner{position:sticky;top:0;z-index:30;padding:8px 12px;text-align:center;background:#fff4cf;color:#6b5200;font-weight:800;border-bottom:1px solid #eed77d}
+@media(max-width:700px){
+  .image-source-grid{grid-template-columns:1fr}
+  .weather-panel{grid-template-columns:auto 1fr}
+  .weather-meta{grid-column:1/-1;text-align:left;display:flex;gap:12px}
+}

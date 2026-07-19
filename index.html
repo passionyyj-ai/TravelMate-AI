@@ -141,10 +141,16 @@
             <b>메뉴판·표지판·영수증을 촬영하거나 선택하세요.</b>
             <p>가격, 알레르기, 추가요금과 주의사항을 한국어로 정리합니다.</p>
           </div>
-          <label class="camera-button">
-            📷 사진 촬영 또는 이미지 선택
-            <input id="imageTranslateFile" type="file" accept="image/*" capture="environment" hidden>
-          </label>
+          <div class="image-source-grid">
+            <label class="camera-button">
+              📷 카메라로 촬영
+              <input id="imageTranslateCamera" type="file" accept="image/*" capture="environment" hidden>
+            </label>
+            <label class="camera-button gallery-button">
+              🖼️ 저장된 사진 불러오기
+              <input id="imageTranslateGallery" type="file" accept="image/*" hidden>
+            </label>
+          </div>
           <div id="imagePreviewWrap" class="image-preview-wrap hidden">
             <img id="imagePreview" alt="선택한 번역 이미지 미리보기">
             <button id="removeImageBtn" class="small-btn" type="button">이미지 지우기</button>
@@ -160,6 +166,15 @@
 
     <section class="page" id="toolsPage">
       <section class="card">
+        <div class="section-head"><div><h2>여행지 날씨</h2><p id="weatherGuide">현재 여행 도시의 날씨를 확인합니다.</p></div><button class="small-btn" id="refreshWeather">날씨 새로고침</button></div>
+        <div class="weather-panel" id="weatherPanel">
+          <div class="weather-icon">🌤️</div>
+          <div><b id="weatherTemp">--°</b><span id="weatherText">날씨를 불러오세요.</span></div>
+          <div class="weather-meta"><span id="weatherHighLow">최고/최저 --</span><span id="weatherUpdated">--</span></div>
+        </div>
+      </section>
+
+      <section class="card">
         <div class="section-head"><div><h2>환율 계산</h2><p id="currencyGuide">여행지 통화가 자동 적용됩니다.</p></div><button class="small-btn" id="refreshRate">환율 불러오기</button></div>
         <div class="currency-box">
           <label><span id="localCurrencyLabel">현지 금액</span><input id="localAmount" type="number" inputmode="decimal" value="100"></label>
@@ -168,10 +183,47 @@
         </div>
         <p class="muted" id="rateStatus">환율을 불러오면 자동 계산됩니다.</p>
       </section>
+
+      <section class="card">
+        <div class="section-head"><div><h2>현재 위치에서 길찾기</h2><p>다음 일정 또는 입력한 장소까지 Google 지도를 엽니다.</p></div></div>
+        <label class="wide-label"><span>목적지</span><input id="routeDestination" placeholder="예: Waikiki Beach"></label>
+        <div class="button-row large">
+          <button class="secondary" id="fillNextDestination" type="button">다음 일정 장소 넣기</button>
+          <button class="primary" id="openRouteBtn" type="button">현재 위치에서 길찾기</button>
+        </div>
+        <p class="muted" id="routeStatus">위치 권한을 허용하면 출발 위치가 자동 적용됩니다.</p>
+      </section>
+
+      <section class="card">
+        <div class="section-head"><div><h2>탑승권·바우처 보관함</h2><p>PDF와 이미지를 이 기기에 보관합니다.</p></div></div>
+        <label class="camera-button gallery-button">
+          📎 파일 추가
+          <input id="voucherFile" type="file" accept="image/*,.pdf,application/pdf" hidden>
+        </label>
+        <div id="voucherList" class="voucher-list"></div>
+        <p class="muted">보관 파일은 브라우저의 IndexedDB에 저장됩니다. 중요한 원본도 별도로 보관하세요.</p>
+      </section>
+
+      <section class="card">
+        <div class="section-head"><div><h2>일정 알림</h2><p>앱이 실행 중일 때 30분·10분 전 알림을 표시합니다.</p></div><button class="small-btn" id="requestNotifyBtn">알림 허용</button></div>
+        <div class="reminder-options">
+          <label class="form-check"><input class="form-check-input" id="notify30" type="checkbox" checked><span class="form-check-label">30분 전</span></label>
+          <label class="form-check"><input class="form-check-input" id="notify10" type="checkbox" checked><span class="form-check-label">10분 전</span></label>
+        </div>
+        <p class="muted" id="notifyStatus">브라우저 알림 권한을 허용해 주세요.</p>
+      </section>
+
+      <section class="card">
+        <div class="section-head"><div><h2>AI 여행 비서</h2><p>현재 여행과 일정을 바탕으로 질문에 답합니다.</p></div></div>
+        <div id="aiChatLog" class="ai-chat-log"><div class="ai-message assistant">여행 일정, 준비물, 현지 이동, 식당 주문 등을 물어보세요.</div></div>
+        <label class="wide-label"><span>질문</span><textarea id="aiQuestion" placeholder="예: 오늘 일정 사이에 점심 먹을 시간은 언제가 좋아?"></textarea></label>
+        <button class="primary full" id="askAiBtn" type="button">AI에게 질문하기</button>
+      </section>
+
       <section class="card">
         <h2>여행지 빠른 도구</h2>
         <div class="tool-grid">
-          <button data-search="weather">☀️<span>날씨</span></button>
+          <button data-search="weather">☀️<span>날씨 검색</span></button>
           <button data-search="map">🗺️<span>지도</span></button>
           <button data-search="translate">🌐<span>번역앱</span></button>
           <button data-search="pharmacy">💊<span>약국</span></button>

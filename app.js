@@ -17,6 +17,8 @@ const state = {
   applyingRemote: false,
   lastCloudHash: "",
   selectedImageDataUrl: "",
+  notifiedKeys: new Set(),
+  weatherCache: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -718,7 +720,8 @@ async function selectTranslateImage(file) {
 
 function clearTranslateImage() {
   state.selectedImageDataUrl = "";
-  $("imageTranslateFile").value = "";
+  $("imageTranslateCamera").value = "";
+  $("imageTranslateGallery").value = "";
   $("imagePreview").removeAttribute("src");
   $("imagePreviewWrap").classList.add("hidden");
   $("analyzeImageBtn").disabled = true;
@@ -795,9 +798,230 @@ function updateTools() {
   $("currencyGuide").textContent = trip
     ? `${trip.city} · ${trip.currency} 자동 적용`
     : "여행을 먼저 선택하세요.";
+  $("weatherGuide").textContent = trip
+    ? `${trip.city} 현재 날씨`
+    : "여행을 먼저 선택하세요.";
   $("localCurrencyLabel").textContent = trip ? `${trip.currency} 금액` : "현지 금액";
   state.rate = null;
   $("krwResult").textContent = "-- 원";
+  renderVouchers();
+}
+
+
+function weatherCodeText(code) {
+  const table = {
+    0:"맑음",1:"대체로 맑음",2:"부분적으로 흐림",3:"흐림",
+    45:"안개",48:"서리 안개",51:"약한 이슬비",53:"이슬비",55:"강한 이슬비",
+    61:"약한 비",63:"비",65:"강한 비",71:"약한 눈",73:"눈",75:"강한 눈",
+    80:"약한 소나기",81:"소나기",82:"강한 소나기",95:"뇌우",96:"우박 동반 뇌우",99:"강한 우박 동반 뇌우"
+  };
+  return table[code] || "날씨 정보";
+}
+
+async function fetchWeather() {
+  const trip = activeTrip();
+  if (!trip) {
+    alert("여행을 먼저 선택하세요.");
+    return;
+  }
+  $("weatherText").textContent = "위치를 찾는 중…";
+  try {
+    const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(trip.city)}&count=1&language=ko&format=json`);
+    const geo = await geoRes.json();
+    const place = geo.results?.[0];
+    if (!place) throw new Error("도시 좌표를 찾지 못했습니다.");
+    const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=${encodeURIComponent(trip.timezone)}&forecast_days=1`);
+    const data = await weatherRes.json();
+    $("weatherTemp").textContent = `${Math.round(data.current.temperature_2m)}°`;
+    $("weatherText").textContent = weatherCodeText(data.current.weather_code);
+    $("weatherHighLow").textContent = `최고 ${Math.round(data.daily.temperature_2m_max[0])}° / 최저 ${Math.round(data.daily.temperature_2m_min[0])}°`;
+    $("weatherUpdated").textContent = `업데이트 ${new Date().toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})}`;
+  } catch (error) {
+    $("weatherText").textContent = "날씨 불러오기 실패";
+    $("weatherUpdated").textContent = error.message;
+  }
+}
+
+function fillNextDestination() {
+  const trip = activeTrip();
+  if (!trip) return alert("여행을 먼저 선택하세요.");
+  const next = (trip.schedules || [])
+    .map(s => ({...s, instant: toInstant(trip, s)}))
+    .filter(s => s.instant > new Date() && s.place)
+    .sort((a,b) => a.instant - b.instant)[0];
+  if (!next) return alert("장소가 입력된 다음 일정이 없습니다.");
+  $("routeDestination").value = next.place;
+}
+
+function openRoute() {
+  const destination = $("routeDestination").value.trim();
+  if (!destination) return alert("목적지를 입력하세요.");
+  $("routeStatus").textContent = "현재 위치를 확인하는 중입니다.";
+  if (!navigator.geolocation) {
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`, "_blank");
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const origin = `${pos.coords.latitude},${pos.coords.longitude}`;
+      $("routeStatus").textContent = "Google 지도를 열었습니다.";
+      window.open(`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&travelmode=driving`, "_blank");
+    },
+    () => {
+      $("routeStatus").textContent = "위치 권한 없이 목적지만 열었습니다.";
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`, "_blank");
+    },
+    {enableHighAccuracy:true, timeout:10000}
+  );
+}
+
+function openVoucherDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("travelmate_vouchers", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("files", {keyPath:"id"});
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function addVoucher(file) {
+  if (!file) return;
+  if (file.size > 15 * 1024 * 1024) return alert("파일은 15MB 이하만 저장할 수 있습니다.");
+  const db = await openVoucherDb();
+  const item = {id: uid("voucher"), name:file.name, type:file.type, size:file.size, createdAt:nowIso(), blob:file};
+  await new Promise((resolve,reject)=>{
+    const tx = db.transaction("files","readwrite");
+    tx.objectStore("files").put(item);
+    tx.oncomplete=resolve; tx.onerror=()=>reject(tx.error);
+  });
+  renderVouchers();
+}
+
+async function getVouchers() {
+  const db = await openVoucherDb();
+  return new Promise((resolve,reject)=>{
+    const req = db.transaction("files","readonly").objectStore("files").getAll();
+    req.onsuccess=()=>resolve(req.result.sort((a,b)=>b.createdAt.localeCompare(a.createdAt)));
+    req.onerror=()=>reject(req.error);
+  });
+}
+
+async function renderVouchers() {
+  const box = $("voucherList");
+  if (!box) return;
+  try {
+    const items = await getVouchers();
+    if (!items.length) {
+      box.innerHTML = '<div class="muted">저장된 탑승권이나 바우처가 없습니다.</div>';
+      return;
+    }
+    box.innerHTML = items.map(item => `
+      <div class="voucher-item">
+        <div class="voucher-item-info"><b>${esc(item.name)}</b><small>${Math.round(item.size/1024).toLocaleString()} KB · ${new Date(item.createdAt).toLocaleDateString("ko-KR")}</small></div>
+        <div class="item-actions">
+          <button class="small-btn" data-voucher-open="${item.id}">열기</button>
+          <button class="small-btn danger" data-voucher-delete="${item.id}">삭제</button>
+        </div>
+      </div>`).join("");
+    box.querySelectorAll("[data-voucher-open]").forEach(btn => btn.onclick = async () => {
+      const item = items.find(x => x.id === btn.dataset.voucherOpen);
+      if (!item) return;
+      const url = URL.createObjectURL(item.blob);
+      window.open(url, "_blank");
+      setTimeout(()=>URL.revokeObjectURL(url), 60000);
+    });
+    box.querySelectorAll("[data-voucher-delete]").forEach(btn => btn.onclick = async () => {
+      if (!confirm("이 파일을 삭제할까요?")) return;
+      const db = await openVoucherDb();
+      await new Promise((resolve,reject)=>{
+        const tx=db.transaction("files","readwrite");
+        tx.objectStore("files").delete(btn.dataset.voucherDelete);
+        tx.oncomplete=resolve; tx.onerror=()=>reject(tx.error);
+      });
+      renderVouchers();
+    });
+  } catch (error) {
+    box.innerHTML = `<div class="muted">보관함을 열지 못했습니다: ${esc(error.message)}</div>`;
+  }
+}
+
+async function requestNotifications() {
+  if (!("Notification" in window)) {
+    $("notifyStatus").textContent = "이 브라우저는 알림을 지원하지 않습니다.";
+    return;
+  }
+  const result = await Notification.requestPermission();
+  $("notifyStatus").textContent = result === "granted"
+    ? "알림이 허용되었습니다. 앱 실행 중 일정 알림이 표시됩니다."
+    : "알림이 허용되지 않았습니다.";
+}
+
+function checkScheduleNotifications() {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const trip = activeTrip();
+  if (!trip) return;
+  const now = Date.now();
+  const windows = [];
+  if ($("notify30")?.checked) windows.push(30);
+  if ($("notify10")?.checked) windows.push(10);
+  for (const s of trip.schedules || []) {
+    const time = toInstant(trip, s).getTime();
+    for (const mins of windows) {
+      const diff = Math.round((time - now) / 60000);
+      const key = `${s.id}-${mins}`;
+      if (diff >= mins - 1 && diff <= mins && !state.notifiedKeys.has(key)) {
+        state.notifiedKeys.add(key);
+        new Notification(`${mins}분 후: ${s.title}`, {body: s.place || "TravelMate AI 일정 알림", icon:"./icon-192.png"});
+      }
+    }
+  }
+}
+
+function appendAiMessage(role, text) {
+  const div = document.createElement("div");
+  div.className = `ai-message ${role}`;
+  div.textContent = text;
+  $("aiChatLog").appendChild(div);
+  $("aiChatLog").scrollTop = $("aiChatLog").scrollHeight;
+}
+
+async function askAiAssistant() {
+  const trip = activeTrip();
+  const question = $("aiQuestion").value.trim();
+  if (!trip) return alert("여행을 먼저 선택하세요.");
+  if (!question) return alert("질문을 입력하세요.");
+  appendAiMessage("user", question);
+  $("aiQuestion").value = "";
+  $("askAiBtn").disabled = true;
+  appendAiMessage("assistant", "답변을 준비하고 있습니다…");
+  const pending = $("aiChatLog").lastElementChild;
+  try {
+    const data = await callEdgeFunction({
+      mode: "assistant",
+      question,
+      trip: tripForApi(trip),
+      schedules: (trip.schedules || []).slice(0,50)
+    });
+    pending.textContent = data.result || data.answer || "답변을 받지 못했습니다.";
+  } catch (error) {
+    pending.textContent = "AI 여행 비서 오류: " + error.message;
+  } finally {
+    $("askAiBtn").disabled = false;
+  }
+}
+
+function updateOnlineState() {
+  let banner = document.querySelector(".offline-banner");
+  if (!navigator.onLine) {
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.className = "offline-banner";
+      banner.textContent = "오프라인 상태입니다. 저장된 여행과 일정은 계속 볼 수 있습니다.";
+      document.body.prepend(banner);
+    }
+  } else {
+    banner?.remove();
+  }
 }
 
 function quickSearch(type) {
@@ -1175,13 +1399,27 @@ $("speakInput").onclick = speechRecognize;
 $("readTranslation").onclick = readTranslation;
 $("textTranslatorTab").onclick = () => showTranslatorPanel("text");
 $("imageTranslatorTab").onclick = () => showTranslatorPanel("image");
-$("imageTranslateFile").onchange = (event) => {
+$("imageTranslateCamera").onchange = (event) => {
+  const file = event.target.files?.[0];
+  if (file) selectTranslateImage(file);
+};
+$("imageTranslateGallery").onchange = (event) => {
   const file = event.target.files?.[0];
   if (file) selectTranslateImage(file);
 };
 $("removeImageBtn").onclick = clearTranslateImage;
 $("analyzeImageBtn").onclick = analyzeTranslateImage;
+$("refreshWeather").onclick = fetchWeather;
 $("refreshRate").onclick = fetchRate;
+$("fillNextDestination").onclick = fillNextDestination;
+$("openRouteBtn").onclick = openRoute;
+$("voucherFile").onchange = (event) => {
+  const file = event.target.files?.[0];
+  if (file) addVoucher(file);
+  event.target.value = "";
+};
+$("requestNotifyBtn").onclick = requestNotifications;
+$("askAiBtn").onclick = askAiAssistant;
 $("localAmount").oninput = calcCurrency;
 document.querySelectorAll("[data-search]").forEach((button) => {
   button.onclick = () => quickSearch(button.dataset.search);
@@ -1199,6 +1437,10 @@ refreshAll();
 setDirection("toLocal");
 showTranslatorPanel("text");
 setInterval(updateClocks, 1000);
+setInterval(checkScheduleNotifications, 30000);
+window.addEventListener("online", updateOnlineState);
+window.addEventListener("offline", updateOnlineState);
+updateOnlineState();
 initSupabase();
 
 if ("serviceWorker" in navigator) {
