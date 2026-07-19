@@ -71,3 +71,6 @@ button:disabled{opacity:.5;cursor:not-allowed}
   .sync-badge,.plain-btn{padding:9px 11px}
   .sync-summary{grid-template-columns:1fr}
 }
+
+.sync-account-actions{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(max-width:700px){.sync-account-actions{grid-template-columns:1fr}}

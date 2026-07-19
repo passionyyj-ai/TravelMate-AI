@@ -1,6 +1,8 @@
 const STORAGE_KEY = "travelmate_ai_v1";
 const DEVICE_ID_KEY = "travelmate_device_id";
 const SYNC_DEBOUNCE_MS = 1100;
+const TRAVELMATE_AUTH_STORAGE_KEY = "travelmate-ai-auth-v1";
+const TRAVELMATE_AUTH_MARKER_KEY = "travelmate_ai_authenticated_email";
 
 const state = {
   trips: [],
@@ -878,13 +880,25 @@ async function initSupabase() {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
+        storageKey: TRAVELMATE_AUTH_STORAGE_KEY,
       },
     },
   );
 
-  state.supabase.auth.onAuthStateChange(async (_event, session) => {
+  state.supabase.auth.onAuthStateChange(async (event, session) => {
     const previousUserId = state.user?.id;
     state.user = session?.user || null;
+
+    if (state.user?.email) {
+      localStorage.setItem(TRAVELMATE_AUTH_MARKER_KEY, state.user.email);
+    } else {
+      localStorage.removeItem(TRAVELMATE_AUTH_MARKER_KEY);
+    }
+
+    if (["SIGNED_IN", "TOKEN_REFRESHED"].includes(event) && location.hash) {
+      history.replaceState(null, document.title, location.pathname + location.search);
+    }
+
     renderSyncUI();
 
     if (state.user && state.user.id !== previousUserId) {
@@ -938,9 +952,18 @@ async function sendMagicLink() {
 async function signOut() {
   if (!state.supabase) return;
   await state.supabase.auth.signOut();
+  localStorage.removeItem(TRAVELMATE_AUTH_MARKER_KEY);
   state.user = null;
   stopRealtime();
   renderSyncUI();
+}
+
+async function switchAccount() {
+  if (!confirm("현재 계정에서 로그아웃하고 다른 계정으로 로그인할까요?")) return;
+  await signOut();
+  navigate("sync");
+  $("syncEmail")?.focus();
+  setSyncVisual("offline", "새로 사용할 TravelMate 계정의 이메일을 입력하세요.");
 }
 
 function scheduleCloudSave() {
@@ -1136,6 +1159,7 @@ document.querySelectorAll("[data-search]").forEach((button) => {
 });
 $("sendMagicLink").onclick = sendMagicLink;
 $("forceSyncBtn").onclick = initialCloudMerge;
+$("switchAccountBtn").onclick = switchAccount;
 $("signOutBtn").onclick = signOut;
 
 load();
