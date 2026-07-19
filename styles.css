@@ -74,3 +74,15 @@ button:disabled{opacity:.5;cursor:not-allowed}
 
 .sync-account-actions{grid-template-columns:repeat(3,minmax(0,1fr))}
 @media(max-width:700px){.sync-account-actions{grid-template-columns:1fr}}
+
+
+/* v1.1 Social Login */
+.social-login-stack{display:grid;gap:12px;margin:18px 0}
+.social-login{width:100%;min-height:58px;border-radius:16px;border:1px solid var(--line);font-size:1.02rem;font-weight:900;display:flex;align-items:center;justify-content:center;gap:12px}
+.social-login.google{background:#fff;color:#1F2937}
+.social-login.apple{background:#111;color:#fff;border-color:#111}
+.social-logo{width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:#fff;border:1px solid #D7DEDF;font-weight:900;color:#4285F4}
+.apple-mark{color:#111;font-size:.65rem}
+.login-divider{display:flex;align-items:center;gap:12px;color:var(--muted);margin:18px 0}
+.login-divider::before,.login-divider::after{content:"";height:1px;background:var(--line);flex:1}
+.login-divider span{white-space:nowrap;font-size:.92rem}

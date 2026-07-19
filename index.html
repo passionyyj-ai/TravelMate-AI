@@ -190,9 +190,25 @@
         </div>
 
         <div id="loggedOutSync">
-          <label class="wide-label"><span>이메일</span><input id="syncEmail" type="email" placeholder="example@email.com" autocomplete="email"></label>
-          <button class="primary full" id="sendMagicLink" type="button">이메일로 로그인 링크 받기</button>
-          <p class="muted">받은 이메일의 링크를 누르면 로그인됩니다. PC와 휴대폰에서 같은 이메일을 사용하세요.</p>
+          <div class="social-login-stack">
+            <button class="social-login google" id="googleLoginBtn" type="button">
+              <span class="social-logo">G</span>
+              Google로 계속하기
+            </button>
+            <button class="social-login apple" id="appleLoginBtn" type="button">
+              <span class="social-logo apple-mark">●</span>
+              Apple로 계속하기
+            </button>
+          </div>
+
+          <div class="login-divider"><span>또는 이메일</span></div>
+
+          <label class="wide-label">
+            <span>이메일</span>
+            <input id="syncEmail" type="email" placeholder="example@email.com" autocomplete="email">
+          </label>
+          <button class="secondary full" id="sendMagicLink" type="button">이메일 로그인 링크 받기</button>
+          <p class="muted">PC와 휴대폰에서 같은 계정으로 로그인하면 자동 동기화됩니다.</p>
         </div>
 
         <div id="loggedInSync" class="hidden">

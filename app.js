@@ -895,8 +895,11 @@ async function initSupabase() {
       localStorage.removeItem(TRAVELMATE_AUTH_MARKER_KEY);
     }
 
-    if (["SIGNED_IN", "TOKEN_REFRESHED"].includes(event) && location.hash) {
-      history.replaceState(null, document.title, location.pathname + location.search);
+    if (
+      ["SIGNED_IN", "TOKEN_REFRESHED", "INITIAL_SESSION"].includes(event) &&
+      (location.hash || new URLSearchParams(location.search).has("code"))
+    ) {
+      history.replaceState(null, document.title, location.pathname);
     }
 
     renderSyncUI();
@@ -917,6 +920,32 @@ async function initSupabase() {
   if (state.user) {
     await startRealtime();
     await initialCloudMerge();
+  }
+}
+
+
+async function signInWithProvider(provider) {
+  if (!state.supabase) {
+    alert("config.js에 Supabase 설정을 확인하세요.");
+    return;
+  }
+
+  const providerName = provider === "google" ? "Google" : "Apple";
+  setSyncVisual("syncing", `${providerName} 로그인 화면을 여는 중입니다.`);
+
+  const { error } = await state.supabase.auth.signInWithOAuth({
+    provider,
+    options: {
+      redirectTo: location.origin + location.pathname,
+      queryParams:
+        provider === "google"
+          ? { access_type: "offline", prompt: "select_account" }
+          : undefined,
+    },
+  });
+
+  if (error) {
+    setSyncVisual("error", `${providerName} 로그인 실패: ${error.message}`);
   }
 }
 
@@ -1157,6 +1186,8 @@ $("localAmount").oninput = calcCurrency;
 document.querySelectorAll("[data-search]").forEach((button) => {
   button.onclick = () => quickSearch(button.dataset.search);
 });
+$("googleLoginBtn").onclick = () => signInWithProvider("google");
+$("appleLoginBtn").onclick = () => signInWithProvider("apple");
 $("sendMagicLink").onclick = sendMagicLink;
 $("forceSyncBtn").onclick = initialCloudMerge;
 $("switchAccountBtn").onclick = switchAccount;
