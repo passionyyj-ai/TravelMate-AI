@@ -764,8 +764,8 @@ async function startTranslatorRecorder() {
 
   if (isIosVoiceEnvironment()) {
     state.translatorPcmRecorder = await startPcmWavRecorder();
-    setTranslatorVoiceStatus("듣고 있습니다… 1초 이상 말씀한 뒤 버튼을 다시 누르세요.", true);
-    state.translatorRecorderTimer = setTimeout(() => stopTranslatorRecorder(), 20000);
+    setTranslatorVoiceStatus("듣고 있습니다… 최대 60초까지 말씀한 뒤 버튼을 다시 누르세요.", true);
+    state.translatorRecorderTimer = setTimeout(() => stopTranslatorRecorder(), 60000);
     return;
   }
 
@@ -800,8 +800,8 @@ async function startTranslatorRecorder() {
     }
   };
   recorder.start();
-  setTranslatorVoiceStatus("듣고 있습니다… 천천히 말씀한 뒤 버튼을 다시 누르세요.", true);
-  state.translatorRecorderTimer = setTimeout(() => stopTranslatorRecorder(), 20000);
+  setTranslatorVoiceStatus("듣고 있습니다… 최대 60초까지 말씀한 뒤 버튼을 다시 누르세요.", true);
+  state.translatorRecorderTimer = setTimeout(() => stopTranslatorRecorder(), 60000);
 }
 
 async function stopTranslatorRecorder() {
@@ -1194,6 +1194,10 @@ function isIosVoiceEnvironment() {
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 }
 
+function isAndroidVoiceEnvironment() {
+  return /android/i.test(navigator.userAgent);
+}
+
 function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1343,8 +1347,8 @@ async function startAiRecorderFallback() {
 
   if (isIosVoiceEnvironment()) {
     state.aiPcmRecorder = await startPcmWavRecorder();
-    setAiVoiceStatus("듣고 있습니다… 1초 이상 말씀한 뒤 ‘인식 중지’를 누르세요.", true);
-    state.aiRecorderTimer = setTimeout(() => stopAiVoiceRecognition(), 15000);
+    setAiVoiceStatus("듣고 있습니다… 최대 60초까지 말씀한 뒤 ‘인식 중지’를 누르세요.", true);
+    state.aiRecorderTimer = setTimeout(() => stopAiVoiceRecognition(), 60000);
     return;
   }
 
@@ -1379,8 +1383,8 @@ async function startAiRecorderFallback() {
     }
   };
   recorder.start();
-  setAiVoiceStatus("듣고 있습니다… 말씀을 마치면 ‘인식 중지’를 누르세요.", true);
-  state.aiRecorderTimer = setTimeout(() => stopAiVoiceRecognition(), 15000);
+  setAiVoiceStatus("듣고 있습니다… 최대 60초까지 말씀한 뒤 ‘인식 중지’를 누르세요.", true);
+  state.aiRecorderTimer = setTimeout(() => stopAiVoiceRecognition(), 60000);
 }
 
 function startBrowserSpeechRecognition() {
@@ -1441,8 +1445,9 @@ async function startAiVoiceRecognition() {
     return;
   }
   try {
-    // iPhone 홈 화면 앱에서는 녹음 후 서버 변환 방식이 더 안정적입니다.
-    if (isIosVoiceEnvironment()) {
+    // iPhone과 Android에서는 브라우저 음성인식의 조기 종료를 피하기 위해
+    // 사용자가 직접 중지하는 녹음 후 서버 변환 방식을 사용합니다.
+    if (isIosVoiceEnvironment() || isAndroidVoiceEnvironment()) {
       await startAiRecorderFallback();
       return;
     }
