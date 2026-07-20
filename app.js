@@ -19,6 +19,9 @@ const state = {
   selectedImageDataUrl: "",
   notifiedKeys: new Set(),
   weatherCache: null,
+  previewSchedules: [],
+  previewSource: "",
+  packageFile: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -389,6 +392,17 @@ function deleteTrip(id) {
   refreshAll();
 }
 
+
+function openEasyPanel(type){$("aiPlannerPanel").classList.toggle("hidden",type!=="ai");$("packageUploadPanel").classList.toggle("hidden",type!=="package");$("schedulePreviewPanel").classList.add("hidden");$(type==="ai"?"aiPlannerPanel":"packageUploadPanel").scrollIntoView({behavior:"smooth"});}
+function closeEasyPanels(){["aiPlannerPanel","packageUploadPanel","schedulePreviewPanel"].forEach(id=>$(id).classList.add("hidden"));}
+function normalizeAiSchedule(item,trip){return{id:uid("ai"),date:item.date||trip.start||"",start:item.start||"",end:item.end||"",title:item.title||"일정",place:item.place||"",category:item.category||"관광",note:item.note||"",needsReview:Boolean(item.needsReview||!item.start),updatedAt:nowIso()};}
+function renderSchedulePreview(items,title){state.previewSchedules=items;$("previewTitle").textContent=title||"일정 미리보기";const grouped={};for(const item of items){const key=item.date||"날짜 확인 필요";(grouped[key]??=[]).push(item);}$("schedulePreviewList").innerHTML=Object.entries(grouped).map(([date,rows])=>`<section class="preview-day"><h3>${esc(date)}</h3>${rows.map(row=>`<div class="preview-item"><b>${esc(row.start||"시간 미확인")} ${esc(row.title)}</b><p>${esc(row.place||"")}${row.note?" · "+esc(row.note):""}</p>${row.needsReview?'<div class="preview-warning">⚠ 시간 또는 내용을 확인해 주세요.</div>':""}</div>`).join("")}</section>`).join("");$("schedulePreviewPanel").classList.remove("hidden");$("aiPlannerPanel").classList.add("hidden");$("packageUploadPanel").classList.add("hidden");$("schedulePreviewPanel").scrollIntoView({behavior:"smooth"});}
+async function generateAiSchedule(){const trip=activeTrip();if(!trip)return alert("여행을 먼저 선택하세요.");if(!trip.start||!trip.end)return alert("여행 시작일과 종료일을 먼저 입력하세요.");const pace=document.querySelector('input[name="aiPace"]:checked')?.value||"여유롭게";$("generateAiScheduleBtn").disabled=true;$("aiPlannerStatus").textContent="AI가 여행 일정을 만들고 있습니다. 잠시만 기다려 주세요.";try{const data=await callEdgeFunction({mode:"itinerary_generate",trip:tripForApi(trip),startDate:trip.start,endDate:trip.end,companion:$("aiCompanion").value,pace,interest:$("aiInterest").value,mustVisit:$("aiMustVisit").value.trim(),existingSchedules:trip.schedules||[]});const rows=(data.schedules||data.result||[]).map(item=>normalizeAiSchedule(item,trip));if(!rows.length)throw new Error("추천 일정을 만들지 못했습니다.");state.previewSource="ai";renderSchedulePreview(rows,"AI 추천 일정");}catch(error){$("aiPlannerStatus").textContent="일정 만들기 실패: "+error.message;}finally{$("generateAiScheduleBtn").disabled=false;}}
+async function fileToUploadPayload(file){const ext=file.name.split(".").pop()?.toLowerCase();if(["xlsx","xls","csv"].includes(ext)){const workbook=XLSX.read(await file.arrayBuffer(),{type:"array"});const sheet=workbook.Sheets[workbook.SheetNames[0]];return{kind:"table",name:file.name,rows:XLSX.utils.sheet_to_json(sheet,{defval:""})};}if(file.type.startsWith("image/"))return{kind:"image",name:file.name,image:await imageFileToDataUrl(file,1800,.86)};if(file.type==="application/pdf"||ext==="pdf"){const bytes=new Uint8Array(await file.arrayBuffer());let binary="";for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000));return{kind:"pdf",name:file.name,file:`data:application/pdf;base64,${btoa(binary)}`};}throw new Error("지원하지 않는 파일 형식입니다.");}
+function setPackageFile(file){state.packageFile=file||null;if(!file){$("packageFileInfo").classList.add("hidden");$("analyzePackageBtn").disabled=true;return;}$("packageFileInfo").textContent=`선택한 파일: ${file.name}`;$("packageFileInfo").classList.remove("hidden");$("analyzePackageBtn").disabled=false;}
+function setProgressStep(step){[...document.querySelectorAll("#packageProgress .progress-step")].forEach((el,index)=>{el.classList.toggle("active",index===step);el.classList.toggle("done",index<step);});}
+async function analyzePackageSchedule(){const trip=activeTrip();if(!trip)return alert("여행을 먼저 선택하세요.");if(!state.packageFile)return alert("일정표 파일을 선택하세요.");$("analyzePackageBtn").disabled=true;$("packageProgress").classList.remove("hidden");$("packageStatus").textContent="";setProgressStep(0);try{const payload=await fileToUploadPayload(state.packageFile);setProgressStep(1);const data=await callEdgeFunction({mode:"itinerary_extract",trip:tripForApi(trip),startDate:trip.start,endDate:trip.end,document:payload});const rows=(data.schedules||data.result||[]).map(item=>normalizeAiSchedule(item,trip));if(!rows.length)throw new Error("일정표에서 일정을 찾지 못했습니다.");setProgressStep(2);state.previewSource="package";setTimeout(()=>renderSchedulePreview(rows,"여행사 일정표 미리보기"),350);}catch(error){$("packageStatus").textContent="일정표 읽기 실패: "+error.message;}finally{$("analyzePackageBtn").disabled=false;}}
+function registerPreviewSchedules(){const trip=activeTrip();if(!trip||!state.previewSchedules.length)return;let mode="add";if((trip.schedules||[]).length){const add=confirm("기존 일정이 있습니다.\n\n확인: 기존 일정에 추가\n취소: 기존 일정을 지우고 교체");mode=add?"add":"replace";if(mode==="replace"&&!confirm("기존 일정을 모두 지우고 새 일정으로 바꿀까요?"))return;}trip.schedules=mode==="replace"?[...state.previewSchedules]:[...(trip.schedules||[]),...state.previewSchedules];trip.updatedAt=nowIso();persist();const count=state.previewSchedules.length;state.previewSchedules=[];closeEasyPanels();renderSchedules();renderHome();alert(`총 ${count}개 일정이 등록되었습니다.`);}
 function renderSchedules() {
   const trip = activeTrip();
   $("scheduleTripName").textContent = trip ? `${trip.name} 일정` : "여행을 먼저 선택하세요.";
@@ -1384,6 +1398,17 @@ $("closeTripEditor").onclick = () => $("tripEditor").classList.add("hidden");
 $("saveTripBtn").onclick = saveTrip;
 $("tripCountry").onchange = applyCountryCity;
 $("tripCity").onchange = applyCity;
+$("openAiPlannerBtn").onclick=()=>openEasyPanel("ai");
+$("openPackageUploadBtn").onclick=()=>openEasyPanel("package");
+$("closeAiPlannerBtn").onclick=closeEasyPanels;
+$("closePackageUploadBtn").onclick=closeEasyPanels;
+$("generateAiScheduleBtn").onclick=generateAiSchedule;
+$("packageCameraFile").onchange=e=>setPackageFile(e.target.files?.[0]||null);
+$("packageGalleryFile").onchange=e=>setPackageFile(e.target.files?.[0]||null);
+$("analyzePackageBtn").onclick=analyzePackageSchedule;
+$("registerPreviewBtn").onclick=registerPreviewSchedules;
+$("retryPreviewBtn").onclick=()=>openEasyPanel(state.previewSource==="package"?"package":"ai");
+$("cancelPreviewBtn").onclick=closeEasyPanels;
 $("newScheduleBtn").onclick = () => openScheduleEditor();
 $("closeScheduleEditor").onclick = () => $("scheduleEditor").classList.add("hidden");
 $("saveScheduleBtn").onclick = saveSchedule;

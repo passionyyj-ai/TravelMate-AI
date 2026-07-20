@@ -84,6 +84,26 @@
 
     <section class="page" id="schedulePage">
       <section class="card">
+        <div class="easy-schedule-actions">
+          <button id="openAiPlannerBtn" class="easy-action primary-easy" type="button"><span class="easy-icon">✨</span><span><b>AI가 일정 만들어주기</b><small>여행 날짜에 맞춰 추천 일정을 만듭니다</small></span></button>
+          <button id="openPackageUploadBtn" class="easy-action secondary-easy" type="button"><span class="easy-icon">📄</span><span><b>여행사 일정표 넣기</b><small>사진·PDF·엑셀 일정표를 읽어 등록합니다</small></span></button>
+        </div>
+        <div id="aiPlannerPanel" class="easy-panel hidden">
+          <div class="easy-panel-head"><div><h2>AI 일정 만들기</h2><p>아래 네 가지만 선택하세요.</p></div><button id="closeAiPlannerBtn" class="small-btn" type="button">닫기</button></div>
+          <label class="wide-label"><span>누구와 가나요?</span><select id="aiCompanion"><option value="부부">부부</option><option value="가족">가족</option><option value="친구">친구</option><option value="혼자">혼자</option></select></label>
+          <fieldset class="easy-choice-group"><legend>여행 속도</legend><label><input type="radio" name="aiPace" value="여유롭게" checked><span>여유롭게</span></label><label><input type="radio" name="aiPace" value="보통"><span>보통</span></label></fieldset>
+          <label class="wide-label"><span>좋아하는 것</span><select id="aiInterest"><option value="관광과 맛집">관광과 맛집</option><option value="자연과 휴식">자연과 휴식</option><option value="쇼핑과 맛집">쇼핑과 맛집</option><option value="역사와 문화">역사와 문화</option></select></label>
+          <label class="wide-label"><span>꼭 가고 싶은 곳 (없으면 비워두세요)</span><input id="aiMustVisit" placeholder="예: 진주만, 와이켈레 아울렛"></label>
+          <button id="generateAiScheduleBtn" class="primary full easy-main-button" type="button">AI 일정 만들기</button><div id="aiPlannerStatus" class="easy-status" aria-live="polite"></div>
+        </div>
+        <div id="packageUploadPanel" class="easy-panel hidden">
+          <div class="easy-panel-head"><div><h2>여행사 일정표 넣기</h2><p>일정표 사진이나 파일을 선택하세요.</p></div><button id="closePackageUploadBtn" class="small-btn" type="button">닫기</button></div>
+          <div class="image-source-grid"><label class="camera-button">📷 일정표 사진 찍기<input id="packageCameraFile" type="file" accept="image/*" capture="environment" hidden></label><label class="camera-button gallery-button">🖼️ 저장된 일정표 불러오기<input id="packageGalleryFile" type="file" accept="image/*,.pdf,application/pdf,.xlsx,.xls,.csv,text/csv" hidden></label></div>
+          <div id="packageFileInfo" class="selected-file-info hidden"></div><button id="analyzePackageBtn" class="primary full easy-main-button" type="button" disabled>일정표 읽기</button>
+          <div id="packageProgress" class="easy-progress hidden"><div class="progress-step active">1. 일정표 읽는 중</div><div class="progress-step">2. 날짜와 장소 확인 중</div><div class="progress-step">3. 일정 만들기 완료</div></div><div id="packageStatus" class="easy-status" aria-live="polite"></div>
+        </div>
+        <div id="schedulePreviewPanel" class="easy-panel preview-panel hidden"><div class="easy-panel-head"><div><h2 id="previewTitle">일정 미리보기</h2><p>내용을 확인한 뒤 한 번에 등록하세요.</p></div></div><div id="schedulePreviewList" class="schedule-preview-list"></div><div class="easy-confirm-actions"><button id="registerPreviewBtn" class="primary full easy-main-button" type="button">전체 일정 등록</button><button id="retryPreviewBtn" class="secondary full" type="button">다시 만들기</button><button id="cancelPreviewBtn" class="plain-btn full" type="button">취소</button></div></div>
+
         <div class="section-head">
           <div><h2>여행 일정</h2><p id="scheduleTripName">현재 여행 일정</p></div>
           <div class="button-row">
