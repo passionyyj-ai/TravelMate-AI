@@ -1,4 +1,4 @@
-const CACHE = "travelmate-ai-v2-0-stable-url";
+const CACHE = "travelmate-ai-v2-1-date-groups";
 const ASSETS = [
   "./", "./index.html", "./styles.css", "./app.js", "./config.js", "./country-data.js",
   "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png",
