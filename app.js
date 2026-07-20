@@ -410,28 +410,6 @@ function setPackageFile(file){state.packageFile=file||null;if(!file){$("packageF
 function setProgressStep(step){[...document.querySelectorAll("#packageProgress .progress-step")].forEach((el,index)=>{el.classList.toggle("active",index===step);el.classList.toggle("done",index<step);});}
 async function analyzePackageSchedule(){const trip=activeTrip();if(!trip)return alert("여행을 먼저 선택하세요.");if(!state.packageFile)return alert("일정표 파일을 선택하세요.");$("analyzePackageBtn").disabled=true;$("packageProgress").classList.remove("hidden");$("packageStatus").textContent="";setProgressStep(0);try{const payload=await fileToUploadPayload(state.packageFile);setProgressStep(1);const data=await callEdgeFunction({mode:"itinerary_extract",trip:tripForApi(trip),startDate:trip.start,endDate:trip.end,document:payload});const rows=(data.schedules||data.result||[]).map(item=>normalizeAiSchedule(item,trip));if(!rows.length)throw new Error("일정표에서 일정을 찾지 못했습니다.");setProgressStep(2);state.previewSource="package";setTimeout(()=>renderSchedulePreview(rows,"여행사 일정표 미리보기"),350);}catch(error){$("packageStatus").textContent="일정표 읽기 실패: "+error.message;}finally{$("analyzePackageBtn").disabled=false;}}
 function registerPreviewSchedules(){const trip=activeTrip();if(!trip||!state.previewSchedules.length)return;let mode="add";if((trip.schedules||[]).length){const add=confirm("기존 일정이 있습니다.\n\n확인: 기존 일정에 추가\n취소: 기존 일정을 지우고 교체");mode=add?"add":"replace";if(mode==="replace"&&!confirm("기존 일정을 모두 지우고 새 일정으로 바꿀까요?"))return;}trip.schedules=mode==="replace"?[...state.previewSchedules]:[...(trip.schedules||[]),...state.previewSchedules];trip.updatedAt=nowIso();persist();const count=state.previewSchedules.length;state.previewSchedules=[];closeEasyPanels();renderSchedules();renderHome();alert(`총 ${count}개 일정이 등록되었습니다.`);}
-function formatScheduleDate(dateText, tripStart) {
-  if (!dateText) return { label: "날짜 확인 필요", dayLabel: "미정", iso: "" };
-  const date = new Date(`${dateText}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return { label: dateText, dayLabel: "", iso: dateText };
-
-  const label = new Intl.DateTimeFormat("ko-KR", {
-    month: "long",
-    day: "numeric",
-    weekday: "short",
-  }).format(date);
-
-  let dayLabel = "";
-  if (tripStart) {
-    const start = new Date(`${tripStart}T00:00:00`);
-    if (!Number.isNaN(start.getTime())) {
-      const dayNo = Math.floor((date - start) / 86400000) + 1;
-      if (dayNo > 0) dayLabel = `DAY ${dayNo}`;
-    }
-  }
-  return { label, dayLabel, iso: dateText };
-}
-
 function renderSchedules() {
   const trip = activeTrip();
   $("scheduleTripName").textContent = trip ? `${trip.name} 일정` : "여행을 먼저 선택하세요.";
@@ -448,53 +426,24 @@ function renderSchedules() {
     return;
   }
 
-  const sorted = [...list].sort((a, b) =>
-    `${a.date || "9999-99-99"} ${a.start || "99:99"}`.localeCompare(
-      `${b.date || "9999-99-99"} ${b.start || "99:99"}`,
-    ),
-  );
-  const grouped = sorted.reduce((groups, schedule) => {
-    const key = schedule.date || "날짜 확인 필요";
-    (groups[key] ||= []).push(schedule);
-    return groups;
-  }, {});
-
-  box.innerHTML = Object.entries(grouped)
-    .map(([date, schedules]) => {
-      const dateInfo = formatScheduleDate(date === "날짜 확인 필요" ? "" : date, trip.start);
-      return `
-      <section class="schedule-day-group" data-schedule-date="${esc(date)}">
-        <div class="schedule-day-header">
-          <div class="schedule-day-badge">${esc(dateInfo.dayLabel || "DATE")}</div>
-          <div>
-            <h3>${esc(dateInfo.label)}</h3>
-            <p>${schedules.length}개 일정</p>
-          </div>
+  box.innerHTML = [...list]
+    .sort((a, b) => `${a.date} ${a.start}`.localeCompare(`${b.date} ${b.start}`))
+    .map(
+      (schedule) => `
+      <article class="schedule-item">
+        <div>
+          <h3>${esc(schedule.title)}</h3>
+          <p>${esc(schedule.date)} ${esc(schedule.start || "")}${
+            schedule.end ? " ~ " + esc(schedule.end) : ""
+          } · ${esc(schedule.place || "")}</p>
+          <p>${esc(schedule.note || "")}</p>
         </div>
-        <div class="schedule-day-items">
-          ${schedules
-            .map(
-              (schedule) => `
-            <article class="schedule-item">
-              <div class="schedule-time">${esc(schedule.start || "시간 미정")}${
-                schedule.end ? `<small>~ ${esc(schedule.end)}</small>` : ""
-              }</div>
-              <div class="schedule-content">
-                <div class="schedule-category">${esc(schedule.category || "일정")}</div>
-                <h3>${esc(schedule.title)}</h3>
-                ${schedule.place ? `<p>📍 ${esc(schedule.place)}</p>` : ""}
-                ${schedule.note ? `<p class="schedule-note">${esc(schedule.note)}</p>` : ""}
-              </div>
-              <div class="item-actions">
-                <button class="small-btn" data-sch-edit="${schedule.id}">수정</button>
-                <button class="small-btn danger" data-sch-delete="${schedule.id}">삭제</button>
-              </div>
-            </article>`,
-            )
-            .join("")}
+        <div class="item-actions">
+          <button class="small-btn" data-sch-edit="${schedule.id}">수정</button>
+          <button class="small-btn danger" data-sch-delete="${schedule.id}">삭제</button>
         </div>
-      </section>`;
-    })
+      </article>`,
+    )
     .join("");
 
   box.querySelectorAll("[data-sch-edit]").forEach((button) => {
@@ -1531,133 +1480,4 @@ initSupabase();
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("./sw.js");
-}
-
-/* v2.1 날짜별 일정 구분 · 고정 URL · 자동 업데이트 */
-const TRAVELMATE_APP_VERSION = "2.1";
-const TRAVELMATE_FIXED_URL = "https://passionyyj-ai.github.io/TravelMate-AI/";
-let deferredInstallPrompt = null;
-let waitingServiceWorker = null;
-
-function setShareInstallStatus(message) {
-  const target = $("shareInstallStatus");
-  if (target) target.textContent = message;
-}
-
-function isIosDevice() {
-  return /iphone|ipad|ipod/i.test(navigator.userAgent);
-}
-
-function isStandaloneMode() {
-  return window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
-}
-
-function updateInstallButton() {
-  const button = $("installAppBtn");
-  const guide = $("installGuide");
-  if (!button || !guide) return;
-  if (isStandaloneMode()) {
-    button.textContent = "설치 완료";
-    button.disabled = true;
-    guide.textContent = "이미 홈 화면 앱으로 실행 중입니다. 아이콘은 앞으로 그대로 사용합니다.";
-  } else if (deferredInstallPrompt) {
-    button.textContent = "홈 화면에 설치";
-    button.disabled = false;
-  } else if (isIosDevice()) {
-    button.textContent = "아이폰 설치 방법 보기";
-    button.disabled = false;
-    guide.textContent = "Safari에서 공유 버튼을 누른 뒤 ‘홈 화면에 추가’를 선택합니다.";
-  } else {
-    button.textContent = "설치 방법 보기";
-    button.disabled = false;
-  }
-}
-
-async function installTravelMate() {
-  if (isStandaloneMode()) return;
-  if (deferredInstallPrompt) {
-    deferredInstallPrompt.prompt();
-    const choice = await deferredInstallPrompt.userChoice;
-    deferredInstallPrompt = null;
-    setShareInstallStatus(choice.outcome === "accepted" ? "홈 화면 설치가 완료되었습니다." : "설치를 취소했습니다.");
-    updateInstallButton();
-    return;
-  }
-  const guide = $("installGuide");
-  if (isIosDevice()) {
-    guide.innerHTML = '<div class="install-help"><b>아이폰 설치 순서</b><br>① 이 주소를 Safari로 열기<br>② 아래쪽 공유 버튼(□↑) 누르기<br>③ ‘홈 화면에 추가’ 선택<br>④ 오른쪽 위 ‘추가’ 누르기</div>';
-  } else {
-    guide.innerHTML = '<div class="install-help"><b>Android 설치 순서</b><br>Chrome 오른쪽 위 메뉴(⋮)에서 ‘앱 설치’ 또는 ‘홈 화면에 추가’를 선택하세요.</div>';
-  }
-}
-
-async function shareTravelMate() {
-  const shareData = { title: "TravelMate AI", text: "여행 일정을 함께 확인하세요.", url: TRAVELMATE_FIXED_URL };
-  try {
-    if (navigator.share) {
-      await navigator.share(shareData);
-      setShareInstallStatus("공유 화면을 열었습니다.");
-    } else {
-      await navigator.clipboard.writeText(TRAVELMATE_FIXED_URL);
-      setShareInstallStatus("주소를 복사했습니다. 카카오톡에 붙여넣으세요.");
-    }
-  } catch (error) {
-    if (error?.name !== "AbortError") setShareInstallStatus("공유하지 못했습니다. 주소 복사를 이용해 주세요.");
-  }
-}
-
-async function copyTravelMateUrl() {
-  try {
-    await navigator.clipboard.writeText(TRAVELMATE_FIXED_URL);
-    setShareInstallStatus("고정 주소를 복사했습니다.");
-  } catch {
-    window.prompt("아래 주소를 길게 눌러 복사하세요.", TRAVELMATE_FIXED_URL);
-  }
-}
-
-function showUpdateNotice(worker) {
-  waitingServiceWorker = worker;
-  $("updateNotice")?.classList.remove("hidden");
-}
-
-function applyTravelMateUpdate() {
-  if (waitingServiceWorker) {
-    waitingServiceWorker.postMessage({ type: "SKIP_WAITING" });
-  } else {
-    window.location.reload();
-  }
-}
-
-window.addEventListener("beforeinstallprompt", event => {
-  event.preventDefault();
-  deferredInstallPrompt = event;
-  updateInstallButton();
-});
-window.addEventListener("appinstalled", () => {
-  deferredInstallPrompt = null;
-  updateInstallButton();
-  setShareInstallStatus("홈 화면 설치가 완료되었습니다.");
-});
-
-$("installAppBtn")?.addEventListener("click", installTravelMate);
-$("shareAppBtn")?.addEventListener("click", shareTravelMate);
-$("copyAppUrlBtn")?.addEventListener("click", copyTravelMateUrl);
-$("applyUpdateBtn")?.addEventListener("click", applyTravelMateUpdate);
-if ($("appVersionPill")) $("appVersionPill").textContent = `v${TRAVELMATE_APP_VERSION}`;
-updateInstallButton();
-
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.addEventListener("controllerchange", () => window.location.reload());
-  navigator.serviceWorker.ready.then(registration => {
-    if (registration.waiting) showUpdateNotice(registration.waiting);
-    registration.addEventListener("updatefound", () => {
-      const worker = registration.installing;
-      if (!worker) return;
-      worker.addEventListener("statechange", () => {
-        if (worker.state === "installed" && navigator.serviceWorker.controller) showUpdateNotice(worker);
-      });
-    });
-    registration.update().catch(() => {});
-    setInterval(() => registration.update().catch(() => {}), 60 * 60 * 1000);
-  });
 }
