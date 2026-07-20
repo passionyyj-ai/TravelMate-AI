@@ -22,6 +22,12 @@ const state = {
   previewSchedules: [],
   previewSource: "",
   packageFile: null,
+  aiRecognition: null,
+  aiRecorder: null,
+  aiRecorderStream: null,
+  aiRecorderChunks: [],
+  aiRecorderTimer: null,
+  aiLastAnswer: "",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -410,6 +416,28 @@ function setPackageFile(file){state.packageFile=file||null;if(!file){$("packageF
 function setProgressStep(step){[...document.querySelectorAll("#packageProgress .progress-step")].forEach((el,index)=>{el.classList.toggle("active",index===step);el.classList.toggle("done",index<step);});}
 async function analyzePackageSchedule(){const trip=activeTrip();if(!trip)return alert("여행을 먼저 선택하세요.");if(!state.packageFile)return alert("일정표 파일을 선택하세요.");$("analyzePackageBtn").disabled=true;$("packageProgress").classList.remove("hidden");$("packageStatus").textContent="";setProgressStep(0);try{const payload=await fileToUploadPayload(state.packageFile);setProgressStep(1);const data=await callEdgeFunction({mode:"itinerary_extract",trip:tripForApi(trip),startDate:trip.start,endDate:trip.end,document:payload});const rows=(data.schedules||data.result||[]).map(item=>normalizeAiSchedule(item,trip));if(!rows.length)throw new Error("일정표에서 일정을 찾지 못했습니다.");setProgressStep(2);state.previewSource="package";setTimeout(()=>renderSchedulePreview(rows,"여행사 일정표 미리보기"),350);}catch(error){$("packageStatus").textContent="일정표 읽기 실패: "+error.message;}finally{$("analyzePackageBtn").disabled=false;}}
 function registerPreviewSchedules(){const trip=activeTrip();if(!trip||!state.previewSchedules.length)return;let mode="add";if((trip.schedules||[]).length){const add=confirm("기존 일정이 있습니다.\n\n확인: 기존 일정에 추가\n취소: 기존 일정을 지우고 교체");mode=add?"add":"replace";if(mode==="replace"&&!confirm("기존 일정을 모두 지우고 새 일정으로 바꿀까요?"))return;}trip.schedules=mode==="replace"?[...state.previewSchedules]:[...(trip.schedules||[]),...state.previewSchedules];trip.updatedAt=nowIso();persist();const count=state.previewSchedules.length;state.previewSchedules=[];closeEasyPanels();renderSchedules();renderHome();alert(`총 ${count}개 일정이 등록되었습니다.`);}
+function formatScheduleDate(dateText, tripStart) {
+  if (!dateText) return { label: "날짜 확인 필요", dayLabel: "미정", iso: "" };
+  const date = new Date(`${dateText}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return { label: dateText, dayLabel: "", iso: dateText };
+
+  const label = new Intl.DateTimeFormat("ko-KR", {
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  }).format(date);
+
+  let dayLabel = "";
+  if (tripStart) {
+    const start = new Date(`${tripStart}T00:00:00`);
+    if (!Number.isNaN(start.getTime())) {
+      const dayNo = Math.floor((date - start) / 86400000) + 1;
+      if (dayNo > 0) dayLabel = `DAY ${dayNo}`;
+    }
+  }
+  return { label, dayLabel, iso: dateText };
+}
+
 function renderSchedules() {
   const trip = activeTrip();
   $("scheduleTripName").textContent = trip ? `${trip.name} 일정` : "여행을 먼저 선택하세요.";
@@ -426,24 +454,53 @@ function renderSchedules() {
     return;
   }
 
-  box.innerHTML = [...list]
-    .sort((a, b) => `${a.date} ${a.start}`.localeCompare(`${b.date} ${b.start}`))
-    .map(
-      (schedule) => `
-      <article class="schedule-item">
-        <div>
-          <h3>${esc(schedule.title)}</h3>
-          <p>${esc(schedule.date)} ${esc(schedule.start || "")}${
-            schedule.end ? " ~ " + esc(schedule.end) : ""
-          } · ${esc(schedule.place || "")}</p>
-          <p>${esc(schedule.note || "")}</p>
+  const sorted = [...list].sort((a, b) =>
+    `${a.date || "9999-99-99"} ${a.start || "99:99"}`.localeCompare(
+      `${b.date || "9999-99-99"} ${b.start || "99:99"}`,
+    ),
+  );
+  const grouped = sorted.reduce((groups, schedule) => {
+    const key = schedule.date || "날짜 확인 필요";
+    (groups[key] ||= []).push(schedule);
+    return groups;
+  }, {});
+
+  box.innerHTML = Object.entries(grouped)
+    .map(([date, schedules]) => {
+      const dateInfo = formatScheduleDate(date === "날짜 확인 필요" ? "" : date, trip.start);
+      return `
+      <section class="schedule-day-group" data-schedule-date="${esc(date)}">
+        <div class="schedule-day-header">
+          <div class="schedule-day-badge">${esc(dateInfo.dayLabel || "DATE")}</div>
+          <div>
+            <h3>${esc(dateInfo.label)}</h3>
+            <p>${schedules.length}개 일정</p>
+          </div>
         </div>
-        <div class="item-actions">
-          <button class="small-btn" data-sch-edit="${schedule.id}">수정</button>
-          <button class="small-btn danger" data-sch-delete="${schedule.id}">삭제</button>
+        <div class="schedule-day-items">
+          ${schedules
+            .map(
+              (schedule) => `
+            <article class="schedule-item">
+              <div class="schedule-time">${esc(schedule.start || "시간 미정")}${
+                schedule.end ? `<small>~ ${esc(schedule.end)}</small>` : ""
+              }</div>
+              <div class="schedule-content">
+                <div class="schedule-category">${esc(schedule.category || "일정")}</div>
+                <h3>${esc(schedule.title)}</h3>
+                ${schedule.place ? `<p>📍 ${esc(schedule.place)}</p>` : ""}
+                ${schedule.note ? `<p class="schedule-note">${esc(schedule.note)}</p>` : ""}
+              </div>
+              <div class="item-actions">
+                <button class="small-btn" data-sch-edit="${schedule.id}">수정</button>
+                <button class="small-btn danger" data-sch-delete="${schedule.id}">삭제</button>
+              </div>
+            </article>`,
+            )
+            .join("")}
         </div>
-      </article>`,
-    )
+      </section>`;
+    })
     .join("");
 
   box.querySelectorAll("[data-sch-edit]").forEach((button) => {
@@ -666,22 +723,105 @@ async function translate() {
   }
 }
 
-function speechRecognize() {
+function translatorInputLanguage() {
   const trip = activeTrip();
-  const Constructor = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Constructor) {
-    alert("이 브라우저는 음성 인식을 지원하지 않습니다.");
+  return state.direction === "toLocal" ? "ko-KR" : trip?.speech || "en-US";
+}
+
+function setTranslatorVoiceStatus(message, active = false) {
+  const status = $("translatorVoiceStatus");
+  if (status) {
+    status.textContent = message;
+    status.classList.toggle("active", active);
+  }
+  const button = $("speakInput");
+  if (button) {
+    button.classList.toggle("listening", active);
+    button.textContent = active ? "⏹ 말하기 종료" : "🎤 누르고 말하기";
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  }
+}
+
+async function transcribeTranslatorRecording(blob) {
+  if (!blob?.size) throw new Error("녹음된 음성이 없습니다.");
+  if (!navigator.onLine) throw new Error("음성 인식에는 인터넷 연결이 필요합니다.");
+  setTranslatorVoiceStatus("음성을 글자로 바꾸고 있습니다…", true);
+  const audio = await blobToDataUrl(blob);
+  const data = await callEdgeFunction({
+    mode: "transcribe",
+    audio,
+    mimeType: blob.type || "audio/mp4",
+    language: translatorInputLanguage(),
+  });
+  const text = String(data.text || data.transcript || data.result || "").trim();
+  if (!text) throw new Error("말소리가 짧거나 주변 소음이 커서 인식하지 못했습니다.");
+  $("translateInput").value = text;
+  setTranslatorVoiceStatus("인식 완료. 내용을 확인한 뒤 번역하기를 누르세요.");
+}
+
+async function startTranslatorRecorder() {
+  if (!navigator.mediaDevices?.getUserMedia || !("MediaRecorder" in window)) {
+    throw new Error("이 기기에서는 마이크 녹음을 사용할 수 없습니다.");
+  }
+  if (!window.isSecureContext) throw new Error("마이크는 HTTPS 주소에서만 사용할 수 있습니다.");
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
+  const mimeType = preferredAudioMimeType();
+  const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+  state.translatorRecorder = recorder;
+  state.translatorRecorderStream = stream;
+  state.translatorRecorderChunks = [];
+  recorder.ondataavailable = event => {
+    if (event.data?.size) state.translatorRecorderChunks.push(event.data);
+  };
+  recorder.onerror = () => setTranslatorVoiceStatus("녹음 오류가 발생했습니다. 다시 시도해 주세요.");
+  recorder.onstop = async () => {
+    clearTimeout(state.translatorRecorderTimer);
+    state.translatorRecorderTimer = null;
+    const chunks = state.translatorRecorderChunks.slice();
+    const type = recorder.mimeType || mimeType || "audio/mp4";
+    state.translatorRecorder = null;
+    state.translatorRecorderChunks = [];
+    state.translatorRecorderStream?.getTracks().forEach(track => track.stop());
+    state.translatorRecorderStream = null;
+    try {
+      await transcribeTranslatorRecording(new Blob(chunks, { type }));
+    } catch (error) {
+      setTranslatorVoiceStatus("음성 인식 실패: " + error.message);
+    }
+  };
+  recorder.start();
+  setTranslatorVoiceStatus("듣고 있습니다… 천천히 말씀한 뒤 버튼을 다시 누르세요.", true);
+  state.translatorRecorderTimer = setTimeout(() => stopTranslatorRecorder(), 20000);
+}
+
+function stopTranslatorRecorder() {
+  if (state.translatorRecorder?.state === "recording") {
+    setTranslatorVoiceStatus("녹음을 마치고 변환합니다…", true);
+    try { state.translatorRecorder.stop(); } catch {}
     return;
   }
-  const recognition = new Constructor();
-  recognition.lang =
-    state.direction === "toLocal" ? "ko-KR" : trip?.speech || "en-US";
-  recognition.interimResults = false;
-  recognition.onresult = (event) => {
-    $("translateInput").value = event.results[0][0].transcript;
-  };
-  recognition.onerror = () => alert("음성을 인식하지 못했습니다.");
-  recognition.start();
+  clearTimeout(state.translatorRecorderTimer);
+  state.translatorRecorderTimer = null;
+  state.translatorRecorderStream?.getTracks().forEach(track => track.stop());
+  state.translatorRecorderStream = null;
+  setTranslatorVoiceStatus("마이크 버튼을 누르고 말씀하세요.");
+}
+
+async function speechRecognize() {
+  if (state.translatorRecorder?.state === "recording") {
+    stopTranslatorRecorder();
+    return;
+  }
+  try {
+    await startTranslatorRecorder();
+  } catch (error) {
+    const denied = error?.name === "NotAllowedError" || error?.name === "PermissionDeniedError";
+    setTranslatorVoiceStatus(denied
+      ? "마이크 권한이 꺼져 있습니다. Safari 설정에서 이 사이트의 마이크를 허용해 주세요."
+      : "음성인식을 시작하지 못했습니다: " + error.message);
+  }
 }
 
 function readTranslation() {
@@ -1009,6 +1149,215 @@ function appendAiMessage(role, text) {
   $("aiChatLog").scrollTop = $("aiChatLog").scrollHeight;
 }
 
+
+function resolvedAiVoiceLanguage() {
+  const selected = $("aiVoiceLanguage")?.value || "ko-KR";
+  if (selected !== "local") return selected;
+  return activeTrip()?.speech || "en-US";
+}
+
+function setAiVoiceStatus(message, active = false) {
+  const status = $("aiVoiceStatus");
+  if (status) {
+    status.textContent = message;
+    status.classList.toggle("active", active);
+  }
+  $("aiVoiceBtn")?.setAttribute("aria-pressed", active ? "true" : "false");
+  $("aiVoiceBtn")?.classList.toggle("listening", active);
+  $("aiVoiceStopBtn")?.classList.toggle("hidden", !active);
+}
+
+function isIosVoiceEnvironment() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("녹음 파일을 읽지 못했습니다."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function preferredAudioMimeType() {
+  const candidates = [
+    "audio/mp4",
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+  ];
+  return candidates.find(type => window.MediaRecorder?.isTypeSupported?.(type)) || "";
+}
+
+async function transcribeAiRecording(blob) {
+  if (!blob?.size) throw new Error("녹음된 음성이 없습니다.");
+  if (!navigator.onLine) throw new Error("음성 변환에는 인터넷 연결이 필요합니다.");
+  setAiVoiceStatus("음성을 글자로 변환하고 있습니다…", true);
+  const audio = await blobToDataUrl(blob);
+  const data = await callEdgeFunction({
+    mode: "transcribe",
+    audio,
+    mimeType: blob.type || "audio/mp4",
+    language: resolvedAiVoiceLanguage(),
+  });
+  const text = String(data.text || data.transcript || data.result || "").trim();
+  if (!text) throw new Error("음성을 인식하지 못했습니다.");
+  $("aiQuestion").value = text;
+  setAiVoiceStatus("질문을 인식했습니다. 내용을 확인하고 전송하세요.");
+}
+
+async function startAiRecorderFallback() {
+  if (!navigator.mediaDevices?.getUserMedia || !("MediaRecorder" in window)) {
+    throw new Error("이 기기에서는 마이크 녹음을 사용할 수 없습니다.");
+  }
+  if (!window.isSecureContext) {
+    throw new Error("마이크는 HTTPS 주소에서만 사용할 수 있습니다.");
+  }
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
+  const mimeType = preferredAudioMimeType();
+  const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+  state.aiRecorder = recorder;
+  state.aiRecorderStream = stream;
+  state.aiRecorderChunks = [];
+
+  recorder.ondataavailable = event => {
+    if (event.data?.size) state.aiRecorderChunks.push(event.data);
+  };
+  recorder.onerror = () => setAiVoiceStatus("녹음 중 오류가 발생했습니다. 다시 시도해 주세요.");
+  recorder.onstop = async () => {
+    clearTimeout(state.aiRecorderTimer);
+    state.aiRecorderTimer = null;
+    const chunks = state.aiRecorderChunks.slice();
+    const type = recorder.mimeType || mimeType || "audio/mp4";
+    state.aiRecorder = null;
+    state.aiRecorderChunks = [];
+    state.aiRecorderStream?.getTracks().forEach(track => track.stop());
+    state.aiRecorderStream = null;
+    try {
+      await transcribeAiRecording(new Blob(chunks, { type }));
+    } catch (error) {
+      setAiVoiceStatus("음성 인식 실패: " + error.message);
+    }
+  };
+
+  recorder.start();
+  setAiVoiceStatus("듣고 있습니다… 말씀을 마치면 ‘인식 중지’를 누르세요.", true);
+  state.aiRecorderTimer = setTimeout(() => stopAiVoiceRecognition(), 15000);
+}
+
+function startBrowserSpeechRecognition() {
+  const Constructor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Constructor) return false;
+  if (state.aiRecognition) {
+    try { state.aiRecognition.stop(); } catch {}
+  }
+  const recognition = new Constructor();
+  state.aiRecognition = recognition;
+  recognition.lang = resolvedAiVoiceLanguage();
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+  let finalText = "";
+  recognition.onstart = () => setAiVoiceStatus("듣고 있습니다… 질문을 말씀하세요.", true);
+  recognition.onresult = event => {
+    let interim = "";
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) finalText += transcript;
+      else interim += transcript;
+    }
+    $("aiQuestion").value = (finalText || interim).trim();
+    setAiVoiceStatus(interim ? `인식 중: ${interim}` : "질문을 인식했습니다. 내용을 확인하고 전송하세요.", !!interim);
+  };
+  recognition.onerror = async event => {
+    state.aiRecognition = null;
+    const permissionDenied = event.error === "not-allowed" || event.error === "service-not-allowed";
+    if (permissionDenied) {
+      setAiVoiceStatus("마이크 권한이 꺼져 있습니다. Safari 설정에서 마이크를 허용해 주세요.");
+      return;
+    }
+    try {
+      setAiVoiceStatus("브라우저 음성인식 대신 녹음 방식으로 전환합니다…", true);
+      await startAiRecorderFallback();
+    } catch (error) {
+      setAiVoiceStatus("음성인식을 시작하지 못했습니다: " + error.message);
+    }
+  };
+  recognition.onend = () => {
+    state.aiRecognition = null;
+    if ($("aiQuestion").value.trim()) setAiVoiceStatus("질문을 인식했습니다. 수정하거나 AI에게 질문하기를 누르세요.");
+    else if (!state.aiRecorder) setAiVoiceStatus("마이크 버튼을 누르고 질문하세요.");
+  };
+  try {
+    recognition.start();
+    return true;
+  } catch {
+    state.aiRecognition = null;
+    return false;
+  }
+}
+
+async function startAiVoiceRecognition() {
+  if (state.aiRecorder?.state === "recording" || state.aiRecognition) {
+    stopAiVoiceRecognition();
+    return;
+  }
+  try {
+    // iPhone 홈 화면 앱에서는 녹음 후 서버 변환 방식이 더 안정적입니다.
+    if (isIosVoiceEnvironment()) {
+      await startAiRecorderFallback();
+      return;
+    }
+    if (!startBrowserSpeechRecognition()) await startAiRecorderFallback();
+  } catch (error) {
+    const denied = error?.name === "NotAllowedError" || error?.name === "PermissionDeniedError";
+    setAiVoiceStatus(denied
+      ? "마이크 권한이 거부되었습니다. 설정 → Safari → 마이크에서 허용해 주세요."
+      : "음성인식을 시작하지 못했습니다: " + error.message);
+  }
+}
+
+function stopAiVoiceRecognition() {
+  if (state.aiRecognition) {
+    try { state.aiRecognition.stop(); } catch {}
+    state.aiRecognition = null;
+  }
+  if (state.aiRecorder?.state === "recording") {
+    setAiVoiceStatus("녹음을 마치고 음성을 변환합니다…", true);
+    try { state.aiRecorder.stop(); } catch {}
+    return;
+  }
+  clearTimeout(state.aiRecorderTimer);
+  state.aiRecorderTimer = null;
+  state.aiRecorderStream?.getTracks().forEach(track => track.stop());
+  state.aiRecorderStream = null;
+  setAiVoiceStatus("음성인식을 중지했습니다.");
+}
+
+function readLatestAiAnswer() {
+  const text = state.aiLastAnswer || Array.from(document.querySelectorAll("#aiChatLog .ai-message.assistant")).at(-1)?.textContent || "";
+  if (!text || text.includes("준비하고 있습니다")) return alert("읽어드릴 AI 답변이 아직 없습니다.");
+  if (!("speechSynthesis" in window)) return alert("이 브라우저는 음성 읽기를 지원하지 않습니다.");
+  speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = "ko-KR";
+  utterance.rate = 0.95;
+  utterance.onstart = () => setAiVoiceStatus("AI 답변을 읽고 있습니다.", true);
+  utterance.onend = () => setAiVoiceStatus("답변 읽기가 끝났습니다.");
+  utterance.onerror = () => setAiVoiceStatus("답변을 읽지 못했습니다.");
+  speechSynthesis.speak(utterance);
+}
+
+function stopAiAnswerSpeech() {
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  setAiVoiceStatus("음성 읽기를 중지했습니다.");
+}
+
 async function askAiAssistant() {
   const trip = activeTrip();
   const question = $("aiQuestion").value.trim();
@@ -1027,6 +1376,7 @@ async function askAiAssistant() {
       schedules: (trip.schedules || []).slice(0,50)
     });
     pending.textContent = data.result || data.answer || "답변을 받지 못했습니다.";
+    state.aiLastAnswer = pending.textContent;
   } catch (error) {
     pending.textContent = "AI 여행 비서 오류: " + error.message;
   } finally {
@@ -1455,6 +1805,13 @@ $("voucherFile").onchange = (event) => {
 };
 $("requestNotifyBtn").onclick = requestNotifications;
 $("askAiBtn").onclick = askAiAssistant;
+$("aiVoiceBtn")?.addEventListener("click", startAiVoiceRecognition);
+$("aiVoiceStopBtn")?.addEventListener("click", stopAiVoiceRecognition);
+$("readAiAnswerBtn")?.addEventListener("click", readLatestAiAnswer);
+$("stopAiAnswerBtn")?.addEventListener("click", stopAiAnswerSpeech);
+$("aiQuestion")?.addEventListener("keydown", event => {
+  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") askAiAssistant();
+});
 $("localAmount").oninput = calcCurrency;
 document.querySelectorAll("[data-search]").forEach((button) => {
   button.onclick = () => quickSearch(button.dataset.search);
@@ -1480,4 +1837,133 @@ initSupabase();
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("./sw.js");
+}
+
+/* TravelMate AI 3.0.1 · iPhone MP4 음성녹음 안정화 */
+const TRAVELMATE_APP_VERSION = "3.0.1";
+const TRAVELMATE_FIXED_URL = "https://passionyyj-ai.github.io/TravelMate-AI/";
+let deferredInstallPrompt = null;
+let waitingServiceWorker = null;
+
+function setShareInstallStatus(message) {
+  const target = $("shareInstallStatus");
+  if (target) target.textContent = message;
+}
+
+function isIosDevice() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+
+function isStandaloneMode() {
+  return window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+
+function updateInstallButton() {
+  const button = $("installAppBtn");
+  const guide = $("installGuide");
+  if (!button || !guide) return;
+  if (isStandaloneMode()) {
+    button.textContent = "설치 완료";
+    button.disabled = true;
+    guide.textContent = "이미 홈 화면 앱으로 실행 중입니다. 아이콘은 앞으로 그대로 사용합니다.";
+  } else if (deferredInstallPrompt) {
+    button.textContent = "홈 화면에 설치";
+    button.disabled = false;
+  } else if (isIosDevice()) {
+    button.textContent = "아이폰 설치 방법 보기";
+    button.disabled = false;
+    guide.textContent = "Safari에서 공유 버튼을 누른 뒤 ‘홈 화면에 추가’를 선택합니다.";
+  } else {
+    button.textContent = "설치 방법 보기";
+    button.disabled = false;
+  }
+}
+
+async function installTravelMate() {
+  if (isStandaloneMode()) return;
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    const choice = await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    setShareInstallStatus(choice.outcome === "accepted" ? "홈 화면 설치가 완료되었습니다." : "설치를 취소했습니다.");
+    updateInstallButton();
+    return;
+  }
+  const guide = $("installGuide");
+  if (isIosDevice()) {
+    guide.innerHTML = '<div class="install-help"><b>아이폰 설치 순서</b><br>① 이 주소를 Safari로 열기<br>② 아래쪽 공유 버튼(□↑) 누르기<br>③ ‘홈 화면에 추가’ 선택<br>④ 오른쪽 위 ‘추가’ 누르기</div>';
+  } else {
+    guide.innerHTML = '<div class="install-help"><b>Android 설치 순서</b><br>Chrome 오른쪽 위 메뉴(⋮)에서 ‘앱 설치’ 또는 ‘홈 화면에 추가’를 선택하세요.</div>';
+  }
+}
+
+async function shareTravelMate() {
+  const shareData = { title: "TravelMate AI", text: "여행 일정을 함께 확인하세요.", url: TRAVELMATE_FIXED_URL };
+  try {
+    if (navigator.share) {
+      await navigator.share(shareData);
+      setShareInstallStatus("공유 화면을 열었습니다.");
+    } else {
+      await navigator.clipboard.writeText(TRAVELMATE_FIXED_URL);
+      setShareInstallStatus("주소를 복사했습니다. 카카오톡에 붙여넣으세요.");
+    }
+  } catch (error) {
+    if (error?.name !== "AbortError") setShareInstallStatus("공유하지 못했습니다. 주소 복사를 이용해 주세요.");
+  }
+}
+
+async function copyTravelMateUrl() {
+  try {
+    await navigator.clipboard.writeText(TRAVELMATE_FIXED_URL);
+    setShareInstallStatus("고정 주소를 복사했습니다.");
+  } catch {
+    window.prompt("아래 주소를 길게 눌러 복사하세요.", TRAVELMATE_FIXED_URL);
+  }
+}
+
+function showUpdateNotice(worker) {
+  waitingServiceWorker = worker;
+  $("updateNotice")?.classList.remove("hidden");
+}
+
+function applyTravelMateUpdate() {
+  if (waitingServiceWorker) {
+    waitingServiceWorker.postMessage({ type: "SKIP_WAITING" });
+  } else {
+    window.location.reload();
+  }
+}
+
+window.addEventListener("beforeinstallprompt", event => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  updateInstallButton();
+});
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  updateInstallButton();
+  setShareInstallStatus("홈 화면 설치가 완료되었습니다.");
+});
+
+$("installAppBtn")?.addEventListener("click", installTravelMate);
+$("shareAppBtn")?.addEventListener("click", shareTravelMate);
+$("copyAppUrlBtn")?.addEventListener("click", copyTravelMateUrl);
+$("applyUpdateBtn")?.addEventListener("click", applyTravelMateUpdate);
+if ($("appVersionPill")) $("appVersionPill").textContent = `v${TRAVELMATE_APP_VERSION}`;
+updateInstallButton();
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("controllerchange", () => window.location.reload());
+  navigator.serviceWorker.ready.then(registration => {
+    if (registration.waiting) showUpdateNotice(registration.waiting);
+    registration.addEventListener("updatefound", () => {
+      const worker = registration.installing;
+      if (!worker) return;
+      worker.addEventListener("statechange", () => {
+        if (worker.state === "installed" && navigator.serviceWorker.controller) showUpdateNotice(worker);
+      });
+    });
+    registration.update().catch(() => {});
+    setInterval(() => registration.update().catch(() => {}), 60 * 60 * 1000);
+  });
 }

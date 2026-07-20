@@ -1,5 +1,52 @@
-const CACHE="travelmate-ai-v1-3-easy-itinerary";
-const ASSETS=["./","./index.html","./styles.css","./app.js","./config.js","./country-data.js","./manifest.webmanifest","./icon-192.png","./icon-512.png","./apple-touch-icon.png","./favicon.png"];
-self.addEventListener("install",e=>{self.skipWaiting();e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)))});
-self.addEventListener("activate",e=>e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==CACHE).map(x=>caches.delete(x)))).then(()=>self.clients.claim())));
-self.addEventListener("fetch",e=>{if(e.request.method!=="GET")return;e.respondWith(fetch(e.request).then(r=>{const c=r.clone();caches.open(CACHE).then(x=>x.put(e.request,c));return r}).catch(()=>caches.match(e.request).then(r=>r||caches.match("./index.html"))))});
+const CACHE = "travelmate-ai-v3-0-1-voice-fix";
+const ASSETS = [
+  "./", "./index.html", "./styles.css", "./app.js", "./config.js",
+  "./country-data.js", "./manifest.webmanifest", "./icon-192.png",
+  "./icon-512.png", "./apple-touch-icon.png", "./favicon.png",
+  "./travelmate-share-qr.png"
+];
+
+self.addEventListener("install", event => {
+  self.skipWaiting();
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
+});
+
+self.addEventListener("activate", event => {
+  event.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("message", event => {
+  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+});
+
+self.addEventListener("fetch", event => {
+  if (event.request.method !== "GET") return;
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+
+  const freshFiles = ["/app.js", "/config.js", "/country-data.js", "/sw.js"];
+  const needsFresh = event.request.mode === "navigate" || freshFiles.some(path => url.pathname.endsWith(path));
+
+  if (needsFresh) {
+    event.respondWith(
+      fetch(event.request, { cache: "no-store" })
+        .then(response => {
+          if (response.ok) caches.open(CACHE).then(cache => cache.put(event.request, response.clone()));
+          return response;
+        })
+        .catch(() => caches.match(event.request).then(r => r || caches.match("./index.html")))
+    );
+    return;
+  }
+
+  event.respondWith(
+    caches.match(event.request).then(cached => cached || fetch(event.request).then(response => {
+      if (response.ok) caches.open(CACHE).then(cache => cache.put(event.request, response.clone()));
+      return response;
+    }))
+  );
+});
