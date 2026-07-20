@@ -23,6 +23,10 @@ const state = {
   previewSource: "",
   packageFile: null,
   aiRecognition: null,
+  aiRecorder: null,
+  aiRecorderStream: null,
+  aiRecorderChunks: [],
+  aiRecorderTimer: null,
   aiLastAnswer: "",
 };
 
@@ -719,22 +723,105 @@ async function translate() {
   }
 }
 
-function speechRecognize() {
+function translatorInputLanguage() {
   const trip = activeTrip();
-  const Constructor = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Constructor) {
-    alert("이 브라우저는 음성 인식을 지원하지 않습니다.");
+  return state.direction === "toLocal" ? "ko-KR" : trip?.speech || "en-US";
+}
+
+function setTranslatorVoiceStatus(message, active = false) {
+  const status = $("translatorVoiceStatus");
+  if (status) {
+    status.textContent = message;
+    status.classList.toggle("active", active);
+  }
+  const button = $("speakInput");
+  if (button) {
+    button.classList.toggle("listening", active);
+    button.textContent = active ? "⏹ 말하기 종료" : "🎤 누르고 말하기";
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  }
+}
+
+async function transcribeTranslatorRecording(blob) {
+  if (!blob?.size) throw new Error("녹음된 음성이 없습니다.");
+  if (!navigator.onLine) throw new Error("음성 인식에는 인터넷 연결이 필요합니다.");
+  setTranslatorVoiceStatus("음성을 글자로 바꾸고 있습니다…", true);
+  const audio = await blobToDataUrl(blob);
+  const data = await callEdgeFunction({
+    mode: "transcribe",
+    audio,
+    mimeType: blob.type || "audio/mp4",
+    language: translatorInputLanguage(),
+  });
+  const text = String(data.text || data.transcript || data.result || "").trim();
+  if (!text) throw new Error("말소리가 짧거나 주변 소음이 커서 인식하지 못했습니다.");
+  $("translateInput").value = text;
+  setTranslatorVoiceStatus("인식 완료. 내용을 확인한 뒤 번역하기를 누르세요.");
+}
+
+async function startTranslatorRecorder() {
+  if (!navigator.mediaDevices?.getUserMedia || !("MediaRecorder" in window)) {
+    throw new Error("이 기기에서는 마이크 녹음을 사용할 수 없습니다.");
+  }
+  if (!window.isSecureContext) throw new Error("마이크는 HTTPS 주소에서만 사용할 수 있습니다.");
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
+  const mimeType = preferredAudioMimeType();
+  const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+  state.translatorRecorder = recorder;
+  state.translatorRecorderStream = stream;
+  state.translatorRecorderChunks = [];
+  recorder.ondataavailable = event => {
+    if (event.data?.size) state.translatorRecorderChunks.push(event.data);
+  };
+  recorder.onerror = () => setTranslatorVoiceStatus("녹음 오류가 발생했습니다. 다시 시도해 주세요.");
+  recorder.onstop = async () => {
+    clearTimeout(state.translatorRecorderTimer);
+    state.translatorRecorderTimer = null;
+    const chunks = state.translatorRecorderChunks.slice();
+    const type = recorder.mimeType || mimeType || "audio/mp4";
+    state.translatorRecorder = null;
+    state.translatorRecorderChunks = [];
+    state.translatorRecorderStream?.getTracks().forEach(track => track.stop());
+    state.translatorRecorderStream = null;
+    try {
+      await transcribeTranslatorRecording(new Blob(chunks, { type }));
+    } catch (error) {
+      setTranslatorVoiceStatus("음성 인식 실패: " + error.message);
+    }
+  };
+  recorder.start(250);
+  setTranslatorVoiceStatus("듣고 있습니다… 천천히 말씀한 뒤 버튼을 다시 누르세요.", true);
+  state.translatorRecorderTimer = setTimeout(() => stopTranslatorRecorder(), 20000);
+}
+
+function stopTranslatorRecorder() {
+  if (state.translatorRecorder?.state === "recording") {
+    setTranslatorVoiceStatus("녹음을 마치고 변환합니다…", true);
+    try { state.translatorRecorder.stop(); } catch {}
     return;
   }
-  const recognition = new Constructor();
-  recognition.lang =
-    state.direction === "toLocal" ? "ko-KR" : trip?.speech || "en-US";
-  recognition.interimResults = false;
-  recognition.onresult = (event) => {
-    $("translateInput").value = event.results[0][0].transcript;
-  };
-  recognition.onerror = () => alert("음성을 인식하지 못했습니다.");
-  recognition.start();
+  clearTimeout(state.translatorRecorderTimer);
+  state.translatorRecorderTimer = null;
+  state.translatorRecorderStream?.getTracks().forEach(track => track.stop());
+  state.translatorRecorderStream = null;
+  setTranslatorVoiceStatus("마이크 버튼을 누르고 말씀하세요.");
+}
+
+async function speechRecognize() {
+  if (state.translatorRecorder?.state === "recording") {
+    stopTranslatorRecorder();
+    return;
+  }
+  try {
+    await startTranslatorRecorder();
+  } catch (error) {
+    const denied = error?.name === "NotAllowedError" || error?.name === "PermissionDeniedError";
+    setTranslatorVoiceStatus(denied
+      ? "마이크 권한이 꺼져 있습니다. Safari 설정에서 이 사이트의 마이크를 허용해 주세요."
+      : "음성인식을 시작하지 못했습니다: " + error.message);
+  }
 }
 
 function readTranslation() {
@@ -1080,13 +1167,92 @@ function setAiVoiceStatus(message, active = false) {
   $("aiVoiceStopBtn")?.classList.toggle("hidden", !active);
 }
 
-function startAiVoiceRecognition() {
-  const Constructor = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Constructor) {
-    setAiVoiceStatus("이 브라우저에서는 음성인식을 지원하지 않습니다. 키보드 입력을 이용해 주세요.");
-    alert("음성인식이 지원되지 않습니다. 아이폰에서는 최신 Safari 또는 홈 화면 앱에서 다시 확인해 주세요.");
-    return;
+function isIosVoiceEnvironment() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("녹음 파일을 읽지 못했습니다."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function preferredAudioMimeType() {
+  const candidates = [
+    "audio/mp4",
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+  ];
+  return candidates.find(type => window.MediaRecorder?.isTypeSupported?.(type)) || "";
+}
+
+async function transcribeAiRecording(blob) {
+  if (!blob?.size) throw new Error("녹음된 음성이 없습니다.");
+  if (!navigator.onLine) throw new Error("음성 변환에는 인터넷 연결이 필요합니다.");
+  setAiVoiceStatus("음성을 글자로 변환하고 있습니다…", true);
+  const audio = await blobToDataUrl(blob);
+  const data = await callEdgeFunction({
+    mode: "transcribe",
+    audio,
+    mimeType: blob.type || "audio/mp4",
+    language: resolvedAiVoiceLanguage(),
+  });
+  const text = String(data.text || data.transcript || data.result || "").trim();
+  if (!text) throw new Error("음성을 인식하지 못했습니다.");
+  $("aiQuestion").value = text;
+  setAiVoiceStatus("질문을 인식했습니다. 내용을 확인하고 전송하세요.");
+}
+
+async function startAiRecorderFallback() {
+  if (!navigator.mediaDevices?.getUserMedia || !("MediaRecorder" in window)) {
+    throw new Error("이 기기에서는 마이크 녹음을 사용할 수 없습니다.");
   }
+  if (!window.isSecureContext) {
+    throw new Error("마이크는 HTTPS 주소에서만 사용할 수 있습니다.");
+  }
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
+  const mimeType = preferredAudioMimeType();
+  const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+  state.aiRecorder = recorder;
+  state.aiRecorderStream = stream;
+  state.aiRecorderChunks = [];
+
+  recorder.ondataavailable = event => {
+    if (event.data?.size) state.aiRecorderChunks.push(event.data);
+  };
+  recorder.onerror = () => setAiVoiceStatus("녹음 중 오류가 발생했습니다. 다시 시도해 주세요.");
+  recorder.onstop = async () => {
+    clearTimeout(state.aiRecorderTimer);
+    state.aiRecorderTimer = null;
+    const chunks = state.aiRecorderChunks.slice();
+    const type = recorder.mimeType || mimeType || "audio/mp4";
+    state.aiRecorder = null;
+    state.aiRecorderChunks = [];
+    state.aiRecorderStream?.getTracks().forEach(track => track.stop());
+    state.aiRecorderStream = null;
+    try {
+      await transcribeAiRecording(new Blob(chunks, { type }));
+    } catch (error) {
+      setAiVoiceStatus("음성 인식 실패: " + error.message);
+    }
+  };
+
+  recorder.start(250);
+  setAiVoiceStatus("듣고 있습니다… 말씀을 마치면 ‘인식 중지’를 누르세요.", true);
+  state.aiRecorderTimer = setTimeout(() => stopAiVoiceRecognition(), 15000);
+}
+
+function startBrowserSpeechRecognition() {
+  const Constructor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Constructor) return false;
   if (state.aiRecognition) {
     try { state.aiRecognition.stop(); } catch {}
   }
@@ -1108,26 +1274,68 @@ function startAiVoiceRecognition() {
     $("aiQuestion").value = (finalText || interim).trim();
     setAiVoiceStatus(interim ? `인식 중: ${interim}` : "질문을 인식했습니다. 내용을 확인하고 전송하세요.", !!interim);
   };
-  recognition.onerror = event => {
-    const messages = {
-      "not-allowed": "마이크 권한이 꺼져 있습니다. 브라우저 설정에서 마이크를 허용해 주세요.",
-      "no-speech": "음성이 들리지 않았습니다. 마이크를 가까이하고 다시 눌러 주세요.",
-      "network": "음성인식 연결이 원활하지 않습니다. 네트워크를 확인해 주세요."
-    };
-    setAiVoiceStatus(messages[event.error] || "음성을 인식하지 못했습니다. 다시 시도해 주세요.");
+  recognition.onerror = async event => {
+    state.aiRecognition = null;
+    const permissionDenied = event.error === "not-allowed" || event.error === "service-not-allowed";
+    if (permissionDenied) {
+      setAiVoiceStatus("마이크 권한이 꺼져 있습니다. Safari 설정에서 마이크를 허용해 주세요.");
+      return;
+    }
+    try {
+      setAiVoiceStatus("브라우저 음성인식 대신 녹음 방식으로 전환합니다…", true);
+      await startAiRecorderFallback();
+    } catch (error) {
+      setAiVoiceStatus("음성인식을 시작하지 못했습니다: " + error.message);
+    }
   };
   recognition.onend = () => {
     state.aiRecognition = null;
     if ($("aiQuestion").value.trim()) setAiVoiceStatus("질문을 인식했습니다. 수정하거나 AI에게 질문하기를 누르세요.");
-    else setAiVoiceStatus("마이크 버튼을 누르고 질문하세요.");
+    else if (!state.aiRecorder) setAiVoiceStatus("마이크 버튼을 누르고 질문하세요.");
   };
-  try { recognition.start(); } catch { setAiVoiceStatus("음성인식을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요."); }
+  try {
+    recognition.start();
+    return true;
+  } catch {
+    state.aiRecognition = null;
+    return false;
+  }
+}
+
+async function startAiVoiceRecognition() {
+  if (state.aiRecorder?.state === "recording" || state.aiRecognition) {
+    stopAiVoiceRecognition();
+    return;
+  }
+  try {
+    // iPhone 홈 화면 앱에서는 녹음 후 서버 변환 방식이 더 안정적입니다.
+    if (isIosVoiceEnvironment()) {
+      await startAiRecorderFallback();
+      return;
+    }
+    if (!startBrowserSpeechRecognition()) await startAiRecorderFallback();
+  } catch (error) {
+    const denied = error?.name === "NotAllowedError" || error?.name === "PermissionDeniedError";
+    setAiVoiceStatus(denied
+      ? "마이크 권한이 거부되었습니다. 설정 → Safari → 마이크에서 허용해 주세요."
+      : "음성인식을 시작하지 못했습니다: " + error.message);
+  }
 }
 
 function stopAiVoiceRecognition() {
   if (state.aiRecognition) {
     try { state.aiRecognition.stop(); } catch {}
+    state.aiRecognition = null;
   }
+  if (state.aiRecorder?.state === "recording") {
+    setAiVoiceStatus("녹음을 마치고 음성을 변환합니다…", true);
+    try { state.aiRecorder.stop(); } catch {}
+    return;
+  }
+  clearTimeout(state.aiRecorderTimer);
+  state.aiRecorderTimer = null;
+  state.aiRecorderStream?.getTracks().forEach(track => track.stop());
+  state.aiRecorderStream = null;
   setAiVoiceStatus("음성인식을 중지했습니다.");
 }
 
@@ -1631,8 +1839,8 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("./sw.js");
 }
 
-/* v2.1 날짜별 일정 구분 · 고정 URL · 자동 업데이트 */
-const TRAVELMATE_APP_VERSION = "2.2";
+/* TravelMate AI 3.0 · 안정형 음성 통역 · AI 여행비서 · 고정 URL */
+const TRAVELMATE_APP_VERSION = "3.0";
 const TRAVELMATE_FIXED_URL = "https://passionyyj-ai.github.io/TravelMate-AI/";
 let deferredInstallPrompt = null;
 let waitingServiceWorker = null;

@@ -149,9 +149,10 @@
           </div>
           <label class="wide-label"><span>말하거나 입력하세요</span><textarea id="translateInput" placeholder="예: 예약한 방을 확인하고 싶습니다."></textarea></label>
           <div class="button-row large">
-            <button class="primary" id="speakInput" type="button">🎤 말하기</button>
+            <button class="primary" id="speakInput" type="button" aria-pressed="false">🎤 누르고 말하기</button>
             <button class="primary" id="translateBtn" type="button">번역하기</button>
           </div>
+          <div id="translatorVoiceStatus" class="voice-status" aria-live="polite">마이크 버튼을 누르고 말씀하세요.</div>
           <div class="translation-result"><small>번역 결과</small><div id="translateOutput">번역 결과가 여기에 표시됩니다.</div></div>
           <button class="secondary full" id="readTranslation" type="button">🔊 번역 읽기</button>
         </div>
@@ -319,7 +320,7 @@
             <h2>앱 설치·공유</h2>
             <p>앞으로 같은 주소와 같은 홈 화면 아이콘을 계속 사용합니다.</p>
           </div>
-          <span class="state-pill online" id="appVersionPill">v2.1</span>
+          <span class="state-pill online" id="appVersionPill">v3.0</span>
         </div>
 
         <div id="updateNotice" class="update-notice hidden" aria-live="polite">

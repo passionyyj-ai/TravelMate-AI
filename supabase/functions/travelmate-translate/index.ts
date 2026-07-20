@@ -43,6 +43,30 @@ serve(async (req) => {
     let messages: any[] = [];
     let selectedModel = model;
 
+    if (body.mode === "transcribe") {
+      const raw = String(body.audio || "");
+      const match = raw.match(/^data:([^;]+);base64,(.+)$/s);
+      if (!match) return json({ error: "올바른 음성 데이터가 아닙니다." }, 400);
+      const mimeType = match[1] || String(body.mimeType || "audio/mp4");
+      const binary = Uint8Array.from(atob(match[2]), c => c.charCodeAt(0));
+      const extension = mimeType.includes("webm") ? "webm" : mimeType.includes("ogg") ? "ogg" : "m4a";
+      const form = new FormData();
+      form.append("file", new Blob([binary], { type: mimeType }), `travelmate-voice.${extension}`);
+      form.append("model", Deno.env.get("OPENAI_TRANSCRIBE_MODEL") || "gpt-4o-mini-transcribe");
+      const lang = String(body.language || "").split("-")[0];
+      if (lang && lang !== "local") form.append("language", lang);
+      form.append("prompt", "여행 일정, 장소명, 호텔명, 음식점명과 현지 지명을 정확하게 받아쓰세요.");
+
+      const transcription = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: form,
+      });
+      const result = await transcription.json();
+      if (!transcription.ok) return json({ error: result.error?.message || "음성 변환 실패" }, transcription.status);
+      return json({ text: result.text || "", transcript: result.text || "" });
+    }
+
     if (body.mode === "itinerary_generate") {
       messages = [
         { role: "system", content: `고령 여행자를 위한 여유롭고 안전한 일정을 한국어로 만드세요. 이동과 휴식을 고려하세요. ${schema}` },
