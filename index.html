@@ -302,6 +302,43 @@
         <div id="syncStatus" class="sync-message" aria-live="polite">로그인 전에는 이 기기에만 저장됩니다.</div>
       </section>
 
+
+      <section class="card app-access-card">
+        <div class="section-head">
+          <div>
+            <h2>앱 설치·공유</h2>
+            <p>앞으로 같은 주소와 같은 홈 화면 아이콘을 계속 사용합니다.</p>
+          </div>
+          <span class="state-pill online" id="appVersionPill">v2.0</span>
+        </div>
+
+        <div id="updateNotice" class="update-notice hidden" aria-live="polite">
+          <div><b>새 버전이 준비되었습니다.</b><p>일정과 저장 자료는 그대로 유지됩니다.</p></div>
+          <button class="primary" id="applyUpdateBtn" type="button">지금 업데이트</button>
+        </div>
+
+        <div class="install-share-grid">
+          <div class="install-box">
+            <div class="install-icon">📱</div>
+            <h3>홈 화면에 설치</h3>
+            <p id="installGuide">설치 후에는 기존 아이콘 하나로 계속 최신 버전을 사용합니다.</p>
+            <button class="primary full" id="installAppBtn" type="button">홈 화면에 설치</button>
+          </div>
+          <div class="share-box">
+            <img src="./travelmate-share-qr.png" alt="TravelMate AI 고정 주소 QR 코드">
+            <div>
+              <h3>가족에게 공유</h3>
+              <p class="fixed-url">https://passionyyj-ai.github.io/TravelMate-AI/</p>
+              <div class="button-row">
+                <button class="secondary" id="shareAppBtn" type="button">공유하기</button>
+                <button class="secondary" id="copyAppUrlBtn" type="button">주소 복사</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="muted" id="shareInstallStatus">QR 코드와 주소는 이후 버전에서도 바뀌지 않습니다.</p>
+      </section>
+
       <section class="card">
         <h2>동기화 원칙</h2>
         <div class="simple-steps">

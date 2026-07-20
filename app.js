@@ -54,9 +54,15 @@ function stableHash(value) {
 }
 
 function normalizeData() {
-  state.trips = (Array.isArray(state.trips) ? state.trips : []).map((trip) => ({
+  state.trips = (Array.isArray(state.trips) ? state.trips : []).map((trip) => {
+    const info = countryInfo(trip.country);
+    return ({
     ...trip,
     id: trip.id || uid("trip"),
+    currency: trip.currency || info?.currency || "USD",
+    language: trip.language || info?.language || "영어",
+    langCode: info?.langCode || trip.langCode || "en",
+    speech: info?.speech || trip.speech || "en-US",
     updatedAt: trip.updatedAt || trip.updated_at || "1970-01-01T00:00:00.000Z",
     schedules: (Array.isArray(trip.schedules) ? trip.schedules : []).map((schedule) => ({
       ...schedule,
@@ -67,7 +73,8 @@ function normalizeData() {
         trip.updatedAt ||
         "1970-01-01T00:00:00.000Z",
     })),
-  }));
+  });
+  });
   if (!state.trips.some((trip) => trip.id === state.activeTripId)) {
     state.activeTripId = state.trips[0]?.id || null;
   }
@@ -644,6 +651,9 @@ async function translate() {
       text,
       source,
       target,
+      sourceLanguage: state.direction === "toLocal" ? "한국어" : trip.language,
+      targetLanguage: state.direction === "toLocal" ? trip.language : "한국어",
+      countryCode: countryInfo(trip.country)?.code || "",
       style: "simple",
       trip: tripForApi(trip),
     });
@@ -1470,4 +1480,133 @@ initSupabase();
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("./sw.js");
+}
+
+/* v2.0 고정 URL · 설치 · 자동 업데이트 */
+const TRAVELMATE_APP_VERSION = "2.0";
+const TRAVELMATE_FIXED_URL = "https://passionyyj-ai.github.io/TravelMate-AI/";
+let deferredInstallPrompt = null;
+let waitingServiceWorker = null;
+
+function setShareInstallStatus(message) {
+  const target = $("shareInstallStatus");
+  if (target) target.textContent = message;
+}
+
+function isIosDevice() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+
+function isStandaloneMode() {
+  return window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+
+function updateInstallButton() {
+  const button = $("installAppBtn");
+  const guide = $("installGuide");
+  if (!button || !guide) return;
+  if (isStandaloneMode()) {
+    button.textContent = "설치 완료";
+    button.disabled = true;
+    guide.textContent = "이미 홈 화면 앱으로 실행 중입니다. 아이콘은 앞으로 그대로 사용합니다.";
+  } else if (deferredInstallPrompt) {
+    button.textContent = "홈 화면에 설치";
+    button.disabled = false;
+  } else if (isIosDevice()) {
+    button.textContent = "아이폰 설치 방법 보기";
+    button.disabled = false;
+    guide.textContent = "Safari에서 공유 버튼을 누른 뒤 ‘홈 화면에 추가’를 선택합니다.";
+  } else {
+    button.textContent = "설치 방법 보기";
+    button.disabled = false;
+  }
+}
+
+async function installTravelMate() {
+  if (isStandaloneMode()) return;
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    const choice = await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    setShareInstallStatus(choice.outcome === "accepted" ? "홈 화면 설치가 완료되었습니다." : "설치를 취소했습니다.");
+    updateInstallButton();
+    return;
+  }
+  const guide = $("installGuide");
+  if (isIosDevice()) {
+    guide.innerHTML = '<div class="install-help"><b>아이폰 설치 순서</b><br>① 이 주소를 Safari로 열기<br>② 아래쪽 공유 버튼(□↑) 누르기<br>③ ‘홈 화면에 추가’ 선택<br>④ 오른쪽 위 ‘추가’ 누르기</div>';
+  } else {
+    guide.innerHTML = '<div class="install-help"><b>Android 설치 순서</b><br>Chrome 오른쪽 위 메뉴(⋮)에서 ‘앱 설치’ 또는 ‘홈 화면에 추가’를 선택하세요.</div>';
+  }
+}
+
+async function shareTravelMate() {
+  const shareData = { title: "TravelMate AI", text: "여행 일정을 함께 확인하세요.", url: TRAVELMATE_FIXED_URL };
+  try {
+    if (navigator.share) {
+      await navigator.share(shareData);
+      setShareInstallStatus("공유 화면을 열었습니다.");
+    } else {
+      await navigator.clipboard.writeText(TRAVELMATE_FIXED_URL);
+      setShareInstallStatus("주소를 복사했습니다. 카카오톡에 붙여넣으세요.");
+    }
+  } catch (error) {
+    if (error?.name !== "AbortError") setShareInstallStatus("공유하지 못했습니다. 주소 복사를 이용해 주세요.");
+  }
+}
+
+async function copyTravelMateUrl() {
+  try {
+    await navigator.clipboard.writeText(TRAVELMATE_FIXED_URL);
+    setShareInstallStatus("고정 주소를 복사했습니다.");
+  } catch {
+    window.prompt("아래 주소를 길게 눌러 복사하세요.", TRAVELMATE_FIXED_URL);
+  }
+}
+
+function showUpdateNotice(worker) {
+  waitingServiceWorker = worker;
+  $("updateNotice")?.classList.remove("hidden");
+}
+
+function applyTravelMateUpdate() {
+  if (waitingServiceWorker) {
+    waitingServiceWorker.postMessage({ type: "SKIP_WAITING" });
+  } else {
+    window.location.reload();
+  }
+}
+
+window.addEventListener("beforeinstallprompt", event => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  updateInstallButton();
+});
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  updateInstallButton();
+  setShareInstallStatus("홈 화면 설치가 완료되었습니다.");
+});
+
+$("installAppBtn")?.addEventListener("click", installTravelMate);
+$("shareAppBtn")?.addEventListener("click", shareTravelMate);
+$("copyAppUrlBtn")?.addEventListener("click", copyTravelMateUrl);
+$("applyUpdateBtn")?.addEventListener("click", applyTravelMateUpdate);
+if ($("appVersionPill")) $("appVersionPill").textContent = `v${TRAVELMATE_APP_VERSION}`;
+updateInstallButton();
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("controllerchange", () => window.location.reload());
+  navigator.serviceWorker.ready.then(registration => {
+    if (registration.waiting) showUpdateNotice(registration.waiting);
+    registration.addEventListener("updatefound", () => {
+      const worker = registration.installing;
+      if (!worker) return;
+      worker.addEventListener("statechange", () => {
+        if (worker.state === "installed" && navigator.serviceWorker.controller) showUpdateNotice(worker);
+      });
+    });
+    registration.update().catch(() => {});
+    setInterval(() => registration.update().catch(() => {}), 60 * 60 * 1000);
+  });
 }
