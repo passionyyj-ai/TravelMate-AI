@@ -22,6 +22,8 @@ const state = {
   previewSchedules: [],
   previewSource: "",
   packageFile: null,
+  aiRecognition: null,
+  aiLastAnswer: "",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -1060,6 +1062,94 @@ function appendAiMessage(role, text) {
   $("aiChatLog").scrollTop = $("aiChatLog").scrollHeight;
 }
 
+
+function resolvedAiVoiceLanguage() {
+  const selected = $("aiVoiceLanguage")?.value || "ko-KR";
+  if (selected !== "local") return selected;
+  return activeTrip()?.speech || "en-US";
+}
+
+function setAiVoiceStatus(message, active = false) {
+  const status = $("aiVoiceStatus");
+  if (status) {
+    status.textContent = message;
+    status.classList.toggle("active", active);
+  }
+  $("aiVoiceBtn")?.setAttribute("aria-pressed", active ? "true" : "false");
+  $("aiVoiceBtn")?.classList.toggle("listening", active);
+  $("aiVoiceStopBtn")?.classList.toggle("hidden", !active);
+}
+
+function startAiVoiceRecognition() {
+  const Constructor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Constructor) {
+    setAiVoiceStatus("이 브라우저에서는 음성인식을 지원하지 않습니다. 키보드 입력을 이용해 주세요.");
+    alert("음성인식이 지원되지 않습니다. 아이폰에서는 최신 Safari 또는 홈 화면 앱에서 다시 확인해 주세요.");
+    return;
+  }
+  if (state.aiRecognition) {
+    try { state.aiRecognition.stop(); } catch {}
+  }
+  const recognition = new Constructor();
+  state.aiRecognition = recognition;
+  recognition.lang = resolvedAiVoiceLanguage();
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+  let finalText = "";
+  recognition.onstart = () => setAiVoiceStatus("듣고 있습니다… 질문을 말씀하세요.", true);
+  recognition.onresult = event => {
+    let interim = "";
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) finalText += transcript;
+      else interim += transcript;
+    }
+    $("aiQuestion").value = (finalText || interim).trim();
+    setAiVoiceStatus(interim ? `인식 중: ${interim}` : "질문을 인식했습니다. 내용을 확인하고 전송하세요.", !!interim);
+  };
+  recognition.onerror = event => {
+    const messages = {
+      "not-allowed": "마이크 권한이 꺼져 있습니다. 브라우저 설정에서 마이크를 허용해 주세요.",
+      "no-speech": "음성이 들리지 않았습니다. 마이크를 가까이하고 다시 눌러 주세요.",
+      "network": "음성인식 연결이 원활하지 않습니다. 네트워크를 확인해 주세요."
+    };
+    setAiVoiceStatus(messages[event.error] || "음성을 인식하지 못했습니다. 다시 시도해 주세요.");
+  };
+  recognition.onend = () => {
+    state.aiRecognition = null;
+    if ($("aiQuestion").value.trim()) setAiVoiceStatus("질문을 인식했습니다. 수정하거나 AI에게 질문하기를 누르세요.");
+    else setAiVoiceStatus("마이크 버튼을 누르고 질문하세요.");
+  };
+  try { recognition.start(); } catch { setAiVoiceStatus("음성인식을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요."); }
+}
+
+function stopAiVoiceRecognition() {
+  if (state.aiRecognition) {
+    try { state.aiRecognition.stop(); } catch {}
+  }
+  setAiVoiceStatus("음성인식을 중지했습니다.");
+}
+
+function readLatestAiAnswer() {
+  const text = state.aiLastAnswer || Array.from(document.querySelectorAll("#aiChatLog .ai-message.assistant")).at(-1)?.textContent || "";
+  if (!text || text.includes("준비하고 있습니다")) return alert("읽어드릴 AI 답변이 아직 없습니다.");
+  if (!("speechSynthesis" in window)) return alert("이 브라우저는 음성 읽기를 지원하지 않습니다.");
+  speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = "ko-KR";
+  utterance.rate = 0.95;
+  utterance.onstart = () => setAiVoiceStatus("AI 답변을 읽고 있습니다.", true);
+  utterance.onend = () => setAiVoiceStatus("답변 읽기가 끝났습니다.");
+  utterance.onerror = () => setAiVoiceStatus("답변을 읽지 못했습니다.");
+  speechSynthesis.speak(utterance);
+}
+
+function stopAiAnswerSpeech() {
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  setAiVoiceStatus("음성 읽기를 중지했습니다.");
+}
+
 async function askAiAssistant() {
   const trip = activeTrip();
   const question = $("aiQuestion").value.trim();
@@ -1078,6 +1168,7 @@ async function askAiAssistant() {
       schedules: (trip.schedules || []).slice(0,50)
     });
     pending.textContent = data.result || data.answer || "답변을 받지 못했습니다.";
+    state.aiLastAnswer = pending.textContent;
   } catch (error) {
     pending.textContent = "AI 여행 비서 오류: " + error.message;
   } finally {
@@ -1506,6 +1597,13 @@ $("voucherFile").onchange = (event) => {
 };
 $("requestNotifyBtn").onclick = requestNotifications;
 $("askAiBtn").onclick = askAiAssistant;
+$("aiVoiceBtn")?.addEventListener("click", startAiVoiceRecognition);
+$("aiVoiceStopBtn")?.addEventListener("click", stopAiVoiceRecognition);
+$("readAiAnswerBtn")?.addEventListener("click", readLatestAiAnswer);
+$("stopAiAnswerBtn")?.addEventListener("click", stopAiAnswerSpeech);
+$("aiQuestion")?.addEventListener("keydown", event => {
+  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") askAiAssistant();
+});
 $("localAmount").oninput = calcCurrency;
 document.querySelectorAll("[data-search]").forEach((button) => {
   button.onclick = () => quickSearch(button.dataset.search);
@@ -1534,7 +1632,7 @@ if ("serviceWorker" in navigator) {
 }
 
 /* v2.1 날짜별 일정 구분 · 고정 URL · 자동 업데이트 */
-const TRAVELMATE_APP_VERSION = "2.1";
+const TRAVELMATE_APP_VERSION = "2.2";
 const TRAVELMATE_FIXED_URL = "https://passionyyj-ai.github.io/TravelMate-AI/";
 let deferredInstallPrompt = null;
 let waitingServiceWorker = null;

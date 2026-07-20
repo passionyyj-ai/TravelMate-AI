@@ -236,6 +236,16 @@
       <section class="card">
         <div class="section-head"><div><h2>AI 여행 비서</h2><p>현재 여행과 일정을 바탕으로 질문에 답합니다.</p></div></div>
         <div id="aiChatLog" class="ai-chat-log"><div class="ai-message assistant">여행 일정, 준비물, 현지 이동, 식당 주문 등을 물어보세요.</div></div>
+        <div class="ai-voice-toolbar">
+          <label class="voice-language-label"><span>음성 언어</span><select id="aiVoiceLanguage"><option value="ko-KR">한국어</option><option value="local">여행지 언어</option><option value="en-US">영어</option><option value="ja-JP">일본어</option><option value="zh-CN">중국어</option></select></label>
+          <div class="voice-button-row">
+            <button class="voice-start-btn" id="aiVoiceBtn" type="button" aria-pressed="false">🎤 말하기</button>
+            <button class="secondary hidden" id="aiVoiceStopBtn" type="button">■ 인식 중지</button>
+            <button class="secondary" id="readAiAnswerBtn" type="button">🔊 답변 듣기</button>
+            <button class="plain-btn" id="stopAiAnswerBtn" type="button">음성 중지</button>
+          </div>
+        </div>
+        <div id="aiVoiceStatus" class="voice-status" aria-live="polite">마이크 버튼을 누르고 질문하세요.</div>
         <label class="wide-label"><span>질문</span><textarea id="aiQuestion" placeholder="예: 오늘 일정 사이에 점심 먹을 시간은 언제가 좋아?"></textarea></label>
         <button class="primary full" id="askAiBtn" type="button">AI에게 질문하기</button>
       </section>
