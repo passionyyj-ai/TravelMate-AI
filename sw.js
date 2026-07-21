@@ -1,4 +1,4 @@
-const CACHE = "travelmate-ai-v3-0-3-galaxy-recording-fix";
+const CACHE = "travelmate-ai-v3-0-4-stable";
 const ASSETS = [
   "./", "./index.html", "./styles.css", "./app.js", "./config.js",
   "./country-data.js", "./manifest.webmanifest", "./icon-192.png",

@@ -2119,3 +2119,29 @@ if ("serviceWorker" in navigator) {
     setInterval(() => registration.update().catch(() => {}), 60 * 60 * 1000);
   });
 }
+
+
+// === Auto Update Check v3.0.4 ===
+async function checkForAppUpdate(){
+  try{
+    const res=await fetch('./version.json?ts='+Date.now(),{cache:'no-store'});
+    if(!res.ok)return;
+    const remote=await res.json();
+    const current='3.0.3';
+    if(remote.version && remote.version!==current){
+      if(confirm(`새 버전(${remote.version})이 있습니다.\n지금 업데이트하시겠습니까?`)){
+        if('serviceWorker' in navigator){
+          const reg=await navigator.serviceWorker.getRegistration();
+          if(reg) await reg.update();
+        }
+        if(caches){
+          const keys=await caches.keys();
+          await Promise.all(keys.map(k=>caches.delete(k)));
+        }
+        location.reload(true);
+      }
+    }
+  }catch(e){console.debug('update check skipped',e);}
+}
+window.addEventListener('load',()=>setTimeout(checkForAppUpdate,1000));
+
