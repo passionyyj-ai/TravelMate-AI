@@ -762,7 +762,7 @@ async function transcribeTranslatorRecording(blob) {
 async function startTranslatorRecorder() {
   if (!window.isSecureContext) throw new Error("마이크는 HTTPS 주소에서만 사용할 수 있습니다.");
 
-  if (isIosVoiceEnvironment()) {
+  if (isIosVoiceEnvironment() || isAndroidVoiceEnvironment()) {
     state.translatorPcmRecorder = await startPcmWavRecorder();
     setTranslatorVoiceStatus("듣고 있습니다… 최대 60초까지 말씀한 뒤 버튼을 다시 누르세요.", true);
     state.translatorRecorderTimer = setTimeout(() => stopTranslatorRecorder(), 60000);
@@ -809,7 +809,7 @@ async function stopTranslatorRecorder() {
   state.translatorRecorderTimer = null;
 
   if (state.translatorPcmRecorder?.state === "recording") {
-    setTranslatorVoiceStatus("아이폰 음성을 WAV로 변환하고 있습니다…", true);
+    setTranslatorVoiceStatus("음성을 WAV로 변환하고 있습니다…", true);
     const recorder = state.translatorPcmRecorder;
     state.translatorPcmRecorder = null;
     try {
@@ -1345,7 +1345,7 @@ async function transcribeAiRecording(blob) {
 async function startAiRecorderFallback() {
   if (!window.isSecureContext) throw new Error("마이크는 HTTPS 주소에서만 사용할 수 있습니다.");
 
-  if (isIosVoiceEnvironment()) {
+  if (isIosVoiceEnvironment() || isAndroidVoiceEnvironment()) {
     state.aiPcmRecorder = await startPcmWavRecorder();
     setAiVoiceStatus("듣고 있습니다… 최대 60초까지 말씀한 뒤 ‘인식 중지’를 누르세요.", true);
     state.aiRecorderTimer = setTimeout(() => stopAiVoiceRecognition(), 60000);
@@ -1469,7 +1469,7 @@ async function stopAiVoiceRecognition() {
   state.aiRecorderTimer = null;
 
   if (state.aiPcmRecorder?.state === "recording") {
-    setAiVoiceStatus("아이폰 음성을 WAV로 변환하고 있습니다…", true);
+    setAiVoiceStatus("음성을 WAV로 변환하고 있습니다…", true);
     const recorder = state.aiPcmRecorder;
     state.aiPcmRecorder = null;
     try {
@@ -2121,56 +2121,27 @@ if ("serviceWorker" in navigator) {
 }
 
 
-// === Auto Update Check v3.0.4.1 ===
-function compareVersions(a, b) {
-  const left = String(a || "").split(".").map(n => Number.parseInt(n, 10) || 0);
-  const right = String(b || "").split(".").map(n => Number.parseInt(n, 10) || 0);
-  const length = Math.max(left.length, right.length);
-  for (let i = 0; i < length; i += 1) {
-    const l = left[i] || 0;
-    const r = right[i] || 0;
-    if (l > r) return 1;
-    if (l < r) return -1;
-  }
-  return 0;
+// === Auto Update Check v3.0.4 ===
+async function checkForAppUpdate(){
+  try{
+    const res=await fetch('./version.json?ts='+Date.now(),{cache:'no-store'});
+    if(!res.ok)return;
+    const remote=await res.json();
+    const current=TRAVELMATE_APP_VERSION;
+    if(remote.version && remote.version!==current){
+      if(confirm(`새 버전(${remote.version})이 있습니다.\n지금 업데이트하시겠습니까?`)){
+        if('serviceWorker' in navigator){
+          const reg=await navigator.serviceWorker.getRegistration();
+          if(reg) await reg.update();
+        }
+        if("caches" in window){
+          const keys=await caches.keys();
+          await Promise.all(keys.map(k=>caches.delete(k)));
+        }
+        location.reload(true);
+      }
+    }
+  }catch(e){console.debug('update check skipped',e);}
 }
-
-async function checkForAppUpdate() {
-  try {
-    const res = await fetch(`./version.json?ts=${Date.now()}`, { cache: "no-store" });
-    if (!res.ok) return;
-
-    const remote = await res.json();
-    const remoteVersion = String(remote.version || "").trim();
-    const currentVersion = String(TRAVELMATE_APP_VERSION || "").trim();
-
-    // 같은 버전이거나 서버 버전이 더 낮으면 아무 메시지도 표시하지 않습니다.
-    if (!remoteVersion || compareVersions(remoteVersion, currentVersion) <= 0) return;
-
-    // 이번 앱 실행 중 이미 취소한 동일 버전은 다시 묻지 않습니다.
-    const dismissedVersion = sessionStorage.getItem("travelmateDismissedUpdateVersion");
-    if (dismissedVersion === remoteVersion) return;
-
-    const shouldUpdate = confirm(`새 버전(${remoteVersion})이 있습니다.\n지금 업데이트하시겠습니까?`);
-    if (!shouldUpdate) {
-      sessionStorage.setItem("travelmateDismissedUpdateVersion", remoteVersion);
-      return;
-    }
-
-    if ("serviceWorker" in navigator) {
-      const registration = await navigator.serviceWorker.getRegistration();
-      if (registration) await registration.update();
-    }
-
-    if ("caches" in window) {
-      const keys = await caches.keys();
-      await Promise.all(keys.map(key => caches.delete(key)));
-    }
-
-    window.location.replace(`${window.location.pathname}?updated=${Date.now()}${window.location.hash}`);
-  } catch (error) {
-    console.debug("update check skipped", error);
-  }
-}
-window.addEventListener("load", () => setTimeout(checkForAppUpdate, 1000));
+window.addEventListener('load',()=>setTimeout(checkForAppUpdate,1000));
 
